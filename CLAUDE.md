@@ -8,7 +8,7 @@ Repo root is the plugin root (standard WP plugin convention). The whole director
 
 ```
 .
-├── blockade.php              # plugin header, constants, bootstrap
+├── blockade.php              # plugin header, constants, bootstrap, PUC init
 ├── uninstall.php             # drop tables + options on uninstall
 ├── readme.txt                # WordPress plugin readme format
 ├── includes/
@@ -17,6 +17,11 @@ Repo root is the plugin root (standard WP plugin convention). The whole director
 │   ├── class-auth-guard.php  # authenticate filter, login hooks, lockout
 │   ├── class-cron.php        # daily cleanup
 │   └── class-admin.php       # Settings → Blockade page
+├── composer.json             # pins yahnis-elsts/plugin-update-checker
+├── composer.lock             # tracked, for reproducible installs
+├── build.sh                  # produces vendor-inclusive release zip
+├── vendor/                   # gitignored; populated by composer install
+├── LICENSE                   # MIT
 ├── CLAUDE.md                 # this file
 └── README.md                 # public-facing docs
 ```
@@ -36,6 +41,8 @@ Breaking any of these silently weakens the plugin:
 - **Timestamps are stored in UTC** via `current_time('mysql', true)`. Admin display converts to the site timezone with `wp_date`.
 
 - **No user-agent storage.** Intentional: UAs are trivially spoofed and server access logs cover forensics.
+
+- **PUC init must keep `enableReleaseAssets()`.** The update-checker block in `blockade.php` calls `$checker->getVcsApi()->enableReleaseAssets()`. Without it, PUC downloads the GitHub-generated source tarball — which lacks `/vendor/` (gitignored) and so is missing PUC itself. Updates would install a broken plugin. See "Releasing" below for the paired requirement on release assets.
 
 ## Client IP resolution
 
