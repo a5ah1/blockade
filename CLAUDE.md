@@ -44,6 +44,10 @@ Breaking any of these silently weakens the plugin:
 
 - **PUC init must keep `enableReleaseAssets()`.** The update-checker block in `blockade.php` calls `$checker->getVcsApi()->enableReleaseAssets()`. Without it, PUC downloads the GitHub-generated source tarball — which lacks `/vendor/` (gitignored) and so is missing PUC itself. Updates would install a broken plugin. See "Releasing" below for the paired requirement on release assets.
 
+- **"Clear all lockouts" is scoped, not a truncate.** `Blockade_Admin::handle_clear_lockouts` computes currently-locked IPs via the shared `compute_locked_out_rows` helper and deletes attempts only for those IPs. Do not "simplify" to `TRUNCATE blockade_attempts` — that would wipe the Recent Failed Attempts audit trail for IPs that were merely below threshold.
+
+- **Email-alert toggle defaults to `'1'` at the read site, not just at install.** `Blockade_Auth_Guard::send_new_ip_notification` reads `get_option( OPTION_EMAIL_NEW_LOCATION_ENABLED, '1' )`. The `'1'` default is load-bearing: it preserves pre-1.0.2 behavior (emails on) for installs that upgrade before the admin touches the new setting, since activation only runs on fresh installs. Don't refactor the default to `false` or drop it.
+
 ## Client IP resolution
 
 `Blockade_IP_Utils::get_client_ip` trusts `HTTP_CF_CONNECTING_IP`, then the first entry of `HTTP_X_FORWARDED_FOR`, then `REMOTE_ADDR`. Known limitation: sites not behind a trusted proxy can be spoofed via forged `X-Forwarded-For`. If configurability is added, gate header trust behind an option — don't silently change the fallback order.
