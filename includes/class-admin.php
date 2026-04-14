@@ -32,23 +32,19 @@ class Blockade_Admin {
 
 		check_admin_referer( self::SAVE_ACTION );
 
-		$raw_allowed = isset( $_POST['blockade_allowed_ips'] ) ? (string) wp_unslash( $_POST['blockade_allowed_ips'] ) : '';
-		$raw_banned  = isset( $_POST['blockade_banned_ips'] ) ? (string) wp_unslash( $_POST['blockade_banned_ips'] ) : '';
+		$raw_allowed = isset( $_POST[ Blockade_Database::OPTION_ALLOWED_IPS ] ) ? (string) wp_unslash( $_POST[ Blockade_Database::OPTION_ALLOWED_IPS ] ) : '';
+		$raw_banned  = isset( $_POST[ Blockade_Database::OPTION_BANNED_IPS ] ) ? (string) wp_unslash( $_POST[ Blockade_Database::OPTION_BANNED_IPS ] ) : '';
 
 		list( $allowed_valid, $allowed_invalid ) = Blockade_IP_Utils::parse_list( $raw_allowed );
 		list( $banned_valid, $banned_invalid )   = Blockade_IP_Utils::parse_list( $raw_banned );
 
-		update_option( 'blockade_allowed_ips', implode( "\n", $allowed_valid ) );
-		update_option( 'blockade_banned_ips', implode( "\n", $banned_valid ) );
+		update_option( Blockade_Database::OPTION_ALLOWED_IPS, implode( "\n", $allowed_valid ) );
+		update_option( Blockade_Database::OPTION_BANNED_IPS, implode( "\n", $banned_valid ) );
 
 		$invalid = array_merge( $allowed_invalid, $banned_invalid );
 
 		if ( ! empty( $invalid ) ) {
-			set_transient(
-				'blockade_invalid_entries_' . get_current_user_id(),
-				$invalid,
-				60
-			);
+			set_transient( self::invalid_entries_transient_key(), $invalid, 60 );
 		}
 
 		$redirect = add_query_arg(
@@ -68,8 +64,8 @@ class Blockade_Admin {
 			wp_die( 'Insufficient permissions.', '', array( 'response' => 403 ) );
 		}
 
-		$allowed = (string) get_option( 'blockade_allowed_ips', '' );
-		$banned  = (string) get_option( 'blockade_banned_ips', '' );
+		$allowed = (string) get_option( Blockade_Database::OPTION_ALLOWED_IPS, '' );
+		$banned  = (string) get_option( Blockade_Database::OPTION_BANNED_IPS, '' );
 
 		$notice = isset( $_GET[ self::NOTICE_QUERY ] ) ? sanitize_key( $_GET[ self::NOTICE_QUERY ] ) : '';
 
@@ -87,12 +83,12 @@ class Blockade_Admin {
 				<table class="form-table" role="presentation">
 					<tr>
 						<th scope="row">
-							<label for="blockade_allowed_ips">Allowed IPs (one per line, CIDR notation supported)</label>
+							<label for="<?php echo esc_attr( Blockade_Database::OPTION_ALLOWED_IPS ); ?>">Allowed IPs (one per line, CIDR notation supported)</label>
 						</th>
 						<td>
 							<textarea
-								id="blockade_allowed_ips"
-								name="blockade_allowed_ips"
+								id="<?php echo esc_attr( Blockade_Database::OPTION_ALLOWED_IPS ); ?>"
+								name="<?php echo esc_attr( Blockade_Database::OPTION_ALLOWED_IPS ); ?>"
 								rows="8"
 								cols="50"
 								class="large-text code"
@@ -102,12 +98,12 @@ class Blockade_Admin {
 					</tr>
 					<tr>
 						<th scope="row">
-							<label for="blockade_banned_ips">Banned IPs (one per line, CIDR notation supported)</label>
+							<label for="<?php echo esc_attr( Blockade_Database::OPTION_BANNED_IPS ); ?>">Banned IPs (one per line, CIDR notation supported)</label>
 						</th>
 						<td>
 							<textarea
-								id="blockade_banned_ips"
-								name="blockade_banned_ips"
+								id="<?php echo esc_attr( Blockade_Database::OPTION_BANNED_IPS ); ?>"
+								name="<?php echo esc_attr( Blockade_Database::OPTION_BANNED_IPS ); ?>"
 								rows="8"
 								cols="50"
 								class="large-text code"
@@ -142,8 +138,9 @@ class Blockade_Admin {
 		if ( 'saved' === $notice ) {
 			echo '<div class="notice notice-success is-dismissible"><p>IP lists saved.</p></div>';
 		} elseif ( 'saved_with_invalid' === $notice ) {
-			$invalid = get_transient( 'blockade_invalid_entries_' . get_current_user_id() );
-			delete_transient( 'blockade_invalid_entries_' . get_current_user_id() );
+			$key     = self::invalid_entries_transient_key();
+			$invalid = get_transient( $key );
+			delete_transient( $key );
 
 			echo '<div class="notice notice-warning is-dismissible"><p><strong>IP lists saved, but the following entries were invalid and discarded:</strong></p><ul style="list-style:disc;padding-left:20px;">';
 			if ( is_array( $invalid ) ) {
@@ -155,100 +152,97 @@ class Blockade_Admin {
 		}
 	}
 
-	protected static function render_login_log_table() {
-		$rows = Blockade_Database::get_recent_logins( 100 );
+	protected static function invalid_entries_transient_key() {
+		return 'blockade_invalid_entries_' . get_current_user_id();
+	}
 
+	protected static function render_table( array $headers, array $rows, $empty_message ) {
 		echo '<table class="widefat striped"><thead><tr>';
-		echo '<th>Username</th><th>IP Address</th><th>Date/Time</th>';
+		foreach ( $headers as $header ) {
+			echo '<th>' . esc_html( $header ) . '</th>';
+		}
 		echo '</tr></thead><tbody>';
 
 		if ( empty( $rows ) ) {
-			echo '<tr><td colspan="3"><em>No successful logins recorded yet.</em></td></tr>';
+			echo '<tr><td colspan="' . (int) count( $headers ) . '"><em>' . esc_html( $empty_message ) . '</em></td></tr>';
 		} else {
-			foreach ( $rows as $row ) {
-				$username = $row->user_login ? $row->user_login : '(deleted user #' . (int) $row->user_id . ')';
+			foreach ( $rows as $cells ) {
 				echo '<tr>';
-				echo '<td>' . esc_html( $username ) . '</td>';
-				echo '<td><code>' . esc_html( $row->ip ) . '</code></td>';
-				echo '<td>' . esc_html( self::format_timestamp( $row->logged_in_at ) ) . '</td>';
+				foreach ( $cells as $cell ) {
+					echo '<td>' . $cell . '</td>';
+				}
 				echo '</tr>';
 			}
 		}
 
 		echo '</tbody></table>';
+	}
+
+	protected static function render_login_log_table() {
+		$rows = array();
+		foreach ( Blockade_Database::get_recent_logins( 100 ) as $row ) {
+			$username = $row->user_login ? $row->user_login : '(deleted user #' . (int) $row->user_id . ')';
+			$rows[]   = array(
+				esc_html( $username ),
+				'<code>' . esc_html( $row->ip ) . '</code>',
+				esc_html( self::format_timestamp( $row->logged_in_at ) ),
+			);
+		}
+
+		self::render_table(
+			array( 'Username', 'IP Address', 'Date/Time' ),
+			$rows,
+			'No successful logins recorded yet.'
+		);
 	}
 
 	protected static function render_failed_attempts_table() {
-		$rows = Blockade_Database::get_recent_attempts( 100 );
-
-		echo '<table class="widefat striped"><thead><tr>';
-		echo '<th>IP Address</th><th>Username Attempted</th><th>Date/Time</th>';
-		echo '</tr></thead><tbody>';
-
-		if ( empty( $rows ) ) {
-			echo '<tr><td colspan="3"><em>No failed attempts recorded yet.</em></td></tr>';
-		} else {
-			foreach ( $rows as $row ) {
-				echo '<tr>';
-				echo '<td><code>' . esc_html( $row->ip ) . '</code></td>';
-				echo '<td>' . esc_html( $row->username ) . '</td>';
-				echo '<td>' . esc_html( self::format_timestamp( $row->attempted_at ) ) . '</td>';
-				echo '</tr>';
-			}
+		$rows = array();
+		foreach ( Blockade_Database::get_recent_attempts( 100 ) as $row ) {
+			$rows[] = array(
+				'<code>' . esc_html( $row->ip ) . '</code>',
+				esc_html( $row->username ),
+				esc_html( self::format_timestamp( $row->attempted_at ) ),
+			);
 		}
 
-		echo '</tbody></table>';
+		self::render_table(
+			array( 'IP Address', 'Username Attempted', 'Date/Time' ),
+			$rows,
+			'No failed attempts recorded yet.'
+		);
 	}
 
 	protected static function render_locked_out_table() {
-		$max_window = 0;
-		foreach ( BLOCKADE_TIERS as $tier ) {
-			if ( $tier[1] > $max_window ) {
-				$max_window = $tier[1];
-			}
-		}
+		$windows = array_column( BLOCKADE_TIERS, 1 );
+		$summary = Blockade_Database::get_locked_out_summary( $windows );
+		$tier_count = count( BLOCKADE_TIERS );
 
-		$ips = Blockade_Database::get_distinct_recent_ips( $max_window );
-
-		$locked = array();
-		foreach ( $ips as $ip ) {
+		$rows = array();
+		foreach ( $summary as $ip_row ) {
 			foreach ( BLOCKADE_TIERS as $index => $tier ) {
 				list( $max_attempts, $window_seconds, $lockout_seconds ) = $tier;
-				$count = Blockade_Database::count_failures_for_ip( $ip, $window_seconds );
+				$count = isset( $ip_row[ 'c_' . $index ] ) ? (int) $ip_row[ 'c_' . $index ] : 0;
 				if ( $count >= $max_attempts ) {
-					$tier_number  = count( BLOCKADE_TIERS ) - $index;
-					$latest       = Blockade_Database::latest_attempt_for_ip( $ip );
-					$expires_at   = $latest ? strtotime( $latest . ' UTC' ) + $lockout_seconds : time() + $lockout_seconds;
+					$latest     = $ip_row['latest'];
+					$expires_at = $latest ? strtotime( $latest . ' UTC' ) + $lockout_seconds : time() + $lockout_seconds;
 
-					$locked[] = array(
-						'ip'         => $ip,
-						'tier'       => $tier_number,
-						'count'      => $count,
-						'expires_at' => $expires_at,
+					$rows[] = array(
+						'<code>' . esc_html( $ip_row['ip'] ) . '</code>',
+						'Tier ' . (int) ( $tier_count - $index ),
+						(string) $count,
+						esc_html( self::format_timestamp( gmdate( 'Y-m-d H:i:s', $expires_at ) ) ),
 					);
 					break;
 				}
 			}
 		}
 
-		echo '<table class="widefat striped"><thead><tr>';
-		echo '<th>IP Address</th><th>Tier</th><th>Failures in Window</th><th>Lockout Expires (approx.)</th>';
-		echo '</tr></thead><tbody>';
-
-		if ( empty( $locked ) ) {
-			echo '<tr><td colspan="4"><em>No IPs currently locked out.</em></td></tr>';
-		} else {
-			foreach ( $locked as $entry ) {
-				echo '<tr>';
-				echo '<td><code>' . esc_html( $entry['ip'] ) . '</code></td>';
-				echo '<td>Tier ' . (int) $entry['tier'] . '</td>';
-				echo '<td>' . (int) $entry['count'] . '</td>';
-				echo '<td>' . esc_html( self::format_timestamp( gmdate( 'Y-m-d H:i:s', $entry['expires_at'] ) ) ) . '</td>';
-				echo '</tr>';
-			}
-		}
-
-		echo '</tbody></table>';
+		self::render_table(
+			array( 'IP Address', 'Tier', 'Failures in Window', 'Lockout Expires (approx.)' ),
+			$rows,
+			'No IPs currently locked out.'
+		);
 	}
 
 	protected static function format_timestamp( $utc_mysql ) {

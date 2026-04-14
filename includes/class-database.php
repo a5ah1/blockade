@@ -6,6 +6,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Blockade_Database {
 
+	const OPTION_ALLOWED_IPS = 'blockade_allowed_ips';
+	const OPTION_BANNED_IPS  = 'blockade_banned_ips';
+
 	public static function attempts_table() {
 		global $wpdb;
 		return $wpdb->prefix . 'blockade_attempts';
@@ -14,6 +17,10 @@ class Blockade_Database {
 	public static function log_table() {
 		global $wpdb;
 		return $wpdb->prefix . 'blockade_log';
+	}
+
+	private static function threshold( $seconds ) {
+		return gmdate( 'Y-m-d H:i:s', time() - (int) $seconds );
 	}
 
 	public static function install() {
@@ -47,11 +54,11 @@ class Blockade_Database {
 		dbDelta( $attempts_sql );
 		dbDelta( $log_sql );
 
-		if ( false === get_option( 'blockade_allowed_ips', false ) ) {
-			add_option( 'blockade_allowed_ips', '' );
+		if ( false === get_option( self::OPTION_ALLOWED_IPS, false ) ) {
+			add_option( self::OPTION_ALLOWED_IPS, '' );
 		}
-		if ( false === get_option( 'blockade_banned_ips', false ) ) {
-			add_option( 'blockade_banned_ips', '' );
+		if ( false === get_option( self::OPTION_BANNED_IPS, false ) ) {
+			add_option( self::OPTION_BANNED_IPS, '' );
 		}
 	}
 
@@ -83,18 +90,37 @@ class Blockade_Database {
 		);
 	}
 
-	public static function count_failures_for_ip( $ip, $window_seconds ) {
+	/**
+	 * Count this IP's failures in each of the given windows with a single query.
+	 * Returns counts keyed by the same keys as $windows.
+	 */
+	public static function count_failures_for_ip_buckets( $ip, array $windows ) {
 		global $wpdb;
 
-		$threshold = gmdate( 'Y-m-d H:i:s', time() - (int) $window_seconds );
+		if ( empty( $windows ) ) {
+			return array();
+		}
 
-		return (int) $wpdb->get_var(
-			$wpdb->prepare(
-				'SELECT COUNT(*) FROM ' . self::attempts_table() . ' WHERE ip = %s AND attempted_at >= %s',
-				$ip,
-				$threshold
-			)
-		);
+		$selects = array();
+		$args    = array();
+		foreach ( $windows as $index => $seconds ) {
+			$selects[] = 'SUM(CASE WHEN attempted_at >= %s THEN 1 ELSE 0 END) AS c_' . (int) $index;
+			$args[]    = self::threshold( $seconds );
+		}
+		$args[] = $ip;
+		$args[] = self::threshold( max( $windows ) );
+
+		$sql = 'SELECT ' . implode( ', ', $selects ) . ' FROM ' . self::attempts_table()
+			. ' WHERE ip = %s AND attempted_at >= %s';
+
+		$row = $wpdb->get_row( $wpdb->prepare( $sql, $args ), ARRAY_A );
+
+		$out = array();
+		foreach ( $windows as $index => $seconds ) {
+			$key           = 'c_' . (int) $index;
+			$out[ $index ] = isset( $row[ $key ] ) ? (int) $row[ $key ] : 0;
+		}
+		return $out;
 	}
 
 	public static function ip_has_login_history_for_user( $ip, $username ) {
@@ -160,52 +186,46 @@ class Blockade_Database {
 		);
 	}
 
-	public static function get_distinct_recent_ips( $window_seconds ) {
+	/**
+	 * Per-IP failure counts across all windows plus latest attempt, in one query.
+	 * Returns rows with: ip, latest, c_0..c_N matching $windows keys.
+	 */
+	public static function get_locked_out_summary( array $windows ) {
 		global $wpdb;
 
-		$threshold = gmdate( 'Y-m-d H:i:s', time() - (int) $window_seconds );
+		if ( empty( $windows ) ) {
+			return array();
+		}
 
-		return $wpdb->get_col(
-			$wpdb->prepare(
-				'SELECT DISTINCT ip FROM ' . self::attempts_table() . ' WHERE attempted_at >= %s',
-				$threshold
-			)
-		);
-	}
+		$selects = array( 'ip', 'MAX(attempted_at) AS latest' );
+		$args    = array();
+		foreach ( $windows as $index => $seconds ) {
+			$selects[] = 'SUM(CASE WHEN attempted_at >= %s THEN 1 ELSE 0 END) AS c_' . (int) $index;
+			$args[]    = self::threshold( $seconds );
+		}
+		$args[] = self::threshold( max( $windows ) );
 
-	public static function latest_attempt_for_ip( $ip ) {
-		global $wpdb;
+		$sql = 'SELECT ' . implode( ', ', $selects ) . ' FROM ' . self::attempts_table()
+			. ' WHERE attempted_at >= %s GROUP BY ip';
 
-		return $wpdb->get_var(
-			$wpdb->prepare(
-				'SELECT MAX(attempted_at) FROM ' . self::attempts_table() . ' WHERE ip = %s',
-				$ip
-			)
-		);
+		return $wpdb->get_results( $wpdb->prepare( $sql, $args ), ARRAY_A );
 	}
 
 	public static function cleanup_attempts( $retention_seconds ) {
-		global $wpdb;
-
-		$threshold = gmdate( 'Y-m-d H:i:s', time() - (int) $retention_seconds );
-
-		return $wpdb->query(
-			$wpdb->prepare(
-				'DELETE FROM ' . self::attempts_table() . ' WHERE attempted_at < %s',
-				$threshold
-			)
-		);
+		return self::cleanup_table( self::attempts_table(), 'attempted_at', $retention_seconds );
 	}
 
 	public static function cleanup_log( $retention_seconds ) {
-		global $wpdb;
+		return self::cleanup_table( self::log_table(), 'logged_in_at', $retention_seconds );
+	}
 
-		$threshold = gmdate( 'Y-m-d H:i:s', time() - (int) $retention_seconds );
+	private static function cleanup_table( $table, $time_column, $retention_seconds ) {
+		global $wpdb;
 
 		return $wpdb->query(
 			$wpdb->prepare(
-				'DELETE FROM ' . self::log_table() . ' WHERE logged_in_at < %s',
-				$threshold
+				"DELETE FROM {$table} WHERE {$time_column} < %s",
+				self::threshold( $retention_seconds )
 			)
 		);
 	}

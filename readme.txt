@@ -4,7 +4,7 @@ Tags: login, security, brute force, rate limit, ip ban
 Requires at least: 5.0
 Tested up to: 6.4
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -30,6 +30,12 @@ It intentionally does not include XML-RPC protection, 2FA, CAPTCHA, or firewalli
 3. Go to Settings → Blockade to view logs and configure IP lists.
 
 == Changelog ==
+
+= 1.0.1 =
+* Collapse per-tier failure-count queries into one aggregate query on the login hot path.
+* Collapse the admin locked-out table's N+1 lookup into one aggregate query.
+* Skip update-checker initialization on front-end requests.
+* Internal refactors: shared threshold/cleanup/render helpers; option keys promoted to constants; uninstall now uses shared table accessors.
 
 = 1.0.0 =
 * Initial release.

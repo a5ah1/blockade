@@ -4,15 +4,16 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	exit;
 }
 
+require_once __DIR__ . '/includes/class-database.php';
+
 global $wpdb;
 
-$attempts_table = $wpdb->prefix . 'blockade_attempts';
-$log_table      = $wpdb->prefix . 'blockade_log';
+$wpdb->query( 'DROP TABLE IF EXISTS ' . Blockade_Database::attempts_table() );
+$wpdb->query( 'DROP TABLE IF EXISTS ' . Blockade_Database::log_table() );
 
-$wpdb->query( "DROP TABLE IF EXISTS {$attempts_table}" );
-$wpdb->query( "DROP TABLE IF EXISTS {$log_table}" );
+delete_option( Blockade_Database::OPTION_ALLOWED_IPS );
+delete_option( Blockade_Database::OPTION_BANNED_IPS );
 
-delete_option( 'blockade_allowed_ips' );
-delete_option( 'blockade_banned_ips' );
-
+// Literal kept in sync with BLOCKADE_CRON_HOOK in blockade.php — plugin bootstrap
+// isn't loaded during uninstall, so the constant isn't defined here.
 wp_clear_scheduled_hook( 'blockade_daily_cleanup' );

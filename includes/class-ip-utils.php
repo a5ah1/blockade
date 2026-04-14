@@ -110,16 +110,7 @@ class Blockade_IP_Utils {
 		$valid   = array();
 		$invalid = array();
 
-		$lines = preg_split( '/\r\n|\r|\n/', (string) $raw );
-		if ( ! is_array( $lines ) ) {
-			return array( $valid, $invalid );
-		}
-
-		foreach ( $lines as $line ) {
-			$line = trim( $line );
-			if ( '' === $line ) {
-				continue;
-			}
+		foreach ( self::normalize_lines( $raw ) as $line ) {
 			if ( self::is_valid_ip_or_cidr( $line ) ) {
 				$valid[ $line ] = true;
 			} else {
@@ -135,21 +126,28 @@ class Blockade_IP_Utils {
 			return false;
 		}
 
-		$lines = preg_split( '/\r\n|\r|\n/', (string) $raw_list );
-		if ( ! is_array( $lines ) ) {
-			return false;
-		}
-
-		foreach ( $lines as $line ) {
-			$line = trim( $line );
-			if ( '' === $line ) {
-				continue;
-			}
+		foreach ( self::normalize_lines( $raw_list ) as $line ) {
 			if ( self::cidr_match( $ip, $line ) ) {
 				return true;
 			}
 		}
 
 		return false;
+	}
+
+	private static function normalize_lines( $raw ) {
+		$lines = preg_split( '/\r\n|\r|\n/', (string) $raw );
+		if ( ! is_array( $lines ) ) {
+			return array();
+		}
+
+		$out = array();
+		foreach ( $lines as $line ) {
+			$line = trim( $line );
+			if ( '' !== $line ) {
+				$out[] = $line;
+			}
+		}
+		return $out;
 	}
 }

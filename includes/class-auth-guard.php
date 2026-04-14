@@ -26,12 +26,12 @@ class Blockade_Auth_Guard {
 			return $user;
 		}
 
-		$banned = (string) get_option( 'blockade_banned_ips', '' );
+		$banned = (string) get_option( Blockade_Database::OPTION_BANNED_IPS, '' );
 		if ( Blockade_IP_Utils::list_contains_ip( $ip, $banned ) ) {
 			self::hard_block();
 		}
 
-		$allowed = (string) get_option( 'blockade_allowed_ips', '' );
+		$allowed = (string) get_option( Blockade_Database::OPTION_ALLOWED_IPS, '' );
 		if ( Blockade_IP_Utils::list_contains_ip( $ip, $allowed ) ) {
 			return $user;
 		}
@@ -41,13 +41,15 @@ class Blockade_Auth_Guard {
 			$tiers = BLOCKADE_KNOWN_IP_TIERS;
 		}
 
+		$windows    = array_column( $tiers, 1 );
+		$counts     = Blockade_Database::count_failures_for_ip_buckets( $ip, $windows );
+		$last_index = count( $tiers ) - 1;
+
 		foreach ( $tiers as $index => $tier ) {
-			list( $max_attempts, $window_seconds, $lockout_seconds ) = $tier;
+			$max_attempts = $tier[0];
 
-			$count = Blockade_Database::count_failures_for_ip( $ip, $window_seconds );
-
-			if ( $count >= $max_attempts ) {
-				$is_tier_one = ( $index === count( $tiers ) - 1 );
+			if ( $counts[ $index ] >= $max_attempts ) {
+				$is_tier_one = ( $index === $last_index );
 
 				if ( $is_tier_one ) {
 					remove_filter( 'authenticate', 'wp_authenticate_username_password', 20 );

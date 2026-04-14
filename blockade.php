@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Blockade
  * Description: Brute force login protection, login audit logging, and IP allow/ban list management.
- * Version:     1.0.0
+ * Version:     1.0.1
  * Author:      Blockade
  * License:     MIT
  * License URI: https://opensource.org/licenses/MIT
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'BLOCKADE_VERSION', '1.0.0' );
+define( 'BLOCKADE_VERSION', '1.0.1' );
 define( 'BLOCKADE_FILE', __FILE__ );
 define( 'BLOCKADE_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -60,7 +60,10 @@ function blockade_bootstrap() {
 $blockade_autoload = BLOCKADE_DIR . 'vendor/autoload.php';
 if ( file_exists( $blockade_autoload ) ) {
 	require_once $blockade_autoload;
-	add_action( 'plugins_loaded', 'blockade_updates_init' );
+	// Skip on front-end requests; update checks only fire in admin/cron/CLI contexts.
+	if ( is_admin() || wp_doing_cron() || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
+		add_action( 'plugins_loaded', 'blockade_updates_init' );
+	}
 }
 
 function blockade_updates_init() {
