@@ -53,3 +53,7 @@ npm-debug.log*
 # PHPUnit (in case tests are added later)
 /phpunit.xml
 /.phpunit.result.cache
+
+# Local test harness and working TODO — specific to author's dev setup, not shipped
+/ignore/
+/TODO.md
