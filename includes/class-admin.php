@@ -40,6 +40,10 @@ class Blockade_Admin {
 
 		update_option( Blockade_Database::OPTION_ALLOWED_IPS, implode( "\n", $allowed_valid ) );
 		update_option( Blockade_Database::OPTION_BANNED_IPS, implode( "\n", $banned_valid ) );
+		update_option(
+			Blockade_Database::OPTION_EMAIL_NEW_LOCATION_ENABLED,
+			isset( $_POST[ Blockade_Database::OPTION_EMAIL_NEW_LOCATION_ENABLED ] ) ? '1' : ''
+		);
 
 		$invalid = array_merge( $allowed_invalid, $banned_invalid );
 
@@ -64,8 +68,9 @@ class Blockade_Admin {
 			wp_die( 'Insufficient permissions.', '', array( 'response' => 403 ) );
 		}
 
-		$allowed = (string) get_option( Blockade_Database::OPTION_ALLOWED_IPS, '' );
-		$banned  = (string) get_option( Blockade_Database::OPTION_BANNED_IPS, '' );
+		$allowed       = (string) get_option( Blockade_Database::OPTION_ALLOWED_IPS, '' );
+		$banned        = (string) get_option( Blockade_Database::OPTION_BANNED_IPS, '' );
+		$email_enabled = '1' === (string) get_option( Blockade_Database::OPTION_EMAIL_NEW_LOCATION_ENABLED, '1' );
 
 		$notice = isset( $_GET[ self::NOTICE_QUERY ] ) ? sanitize_key( $_GET[ self::NOTICE_QUERY ] ) : '';
 
@@ -75,11 +80,30 @@ class Blockade_Admin {
 
 			<?php self::render_notice( $notice ); ?>
 
-			<h2>IP Lists</h2>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="<?php echo esc_attr( self::SAVE_ACTION ); ?>" />
 				<?php wp_nonce_field( self::SAVE_ACTION ); ?>
 
+				<h2>Notifications</h2>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row">New-location login alerts</th>
+						<td>
+							<label>
+								<input
+									type="checkbox"
+									name="<?php echo esc_attr( Blockade_Database::OPTION_EMAIL_NEW_LOCATION_ENABLED ); ?>"
+									value="1"
+									<?php checked( $email_enabled ); ?>
+								/>
+								Email the user when they log in from an IP address they haven't used before.
+							</label>
+							<p class="description">Sent once per (user, IP) pair on the first successful login from that IP. Uncheck to disable all Blockade emails.</p>
+						</td>
+					</tr>
+				</table>
+
+				<h2>IP Lists</h2>
 				<table class="form-table" role="presentation">
 					<tr>
 						<th scope="row">
@@ -113,7 +137,7 @@ class Blockade_Admin {
 					</tr>
 				</table>
 
-				<?php submit_button( 'Save IP Lists' ); ?>
+				<?php submit_button( 'Save Settings' ); ?>
 			</form>
 
 			<hr />
@@ -136,13 +160,13 @@ class Blockade_Admin {
 
 	protected static function render_notice( $notice ) {
 		if ( 'saved' === $notice ) {
-			echo '<div class="notice notice-success is-dismissible"><p>IP lists saved.</p></div>';
+			echo '<div class="notice notice-success is-dismissible"><p>Settings saved.</p></div>';
 		} elseif ( 'saved_with_invalid' === $notice ) {
 			$key     = self::invalid_entries_transient_key();
 			$invalid = get_transient( $key );
 			delete_transient( $key );
 
-			echo '<div class="notice notice-warning is-dismissible"><p><strong>IP lists saved, but the following entries were invalid and discarded:</strong></p><ul style="list-style:disc;padding-left:20px;">';
+			echo '<div class="notice notice-warning is-dismissible"><p><strong>Settings saved, but the following IP list entries were invalid and discarded:</strong></p><ul style="list-style:disc;padding-left:20px;">';
 			if ( is_array( $invalid ) ) {
 				foreach ( $invalid as $entry ) {
 					echo '<li><code>' . esc_html( $entry ) . '</code></li>';

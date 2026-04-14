@@ -6,8 +6,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Blockade_Database {
 
-	const OPTION_ALLOWED_IPS = 'blockade_allowed_ips';
-	const OPTION_BANNED_IPS  = 'blockade_banned_ips';
+	const OPTION_ALLOWED_IPS                = 'blockade_allowed_ips';
+	const OPTION_BANNED_IPS                 = 'blockade_banned_ips';
+	const OPTION_EMAIL_NEW_LOCATION_ENABLED = 'blockade_email_new_location_enabled';
 
 	public static function attempts_table() {
 		global $wpdb;
@@ -59,6 +60,9 @@ class Blockade_Database {
 		}
 		if ( false === get_option( self::OPTION_BANNED_IPS, false ) ) {
 			add_option( self::OPTION_BANNED_IPS, '' );
+		}
+		if ( false === get_option( self::OPTION_EMAIL_NEW_LOCATION_ENABLED, false ) ) {
+			add_option( self::OPTION_EMAIL_NEW_LOCATION_ENABLED, '1' );
 		}
 	}
 

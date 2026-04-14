@@ -97,6 +97,10 @@ class Blockade_Auth_Guard {
 	}
 
 	protected static function send_new_ip_notification( $user, $ip ) {
+		if ( '1' !== (string) get_option( Blockade_Database::OPTION_EMAIL_NEW_LOCATION_ENABLED, '1' ) ) {
+			return;
+		}
+
 		$to = $user->user_email;
 		if ( empty( $to ) ) {
 			return;
