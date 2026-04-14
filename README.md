@@ -6,8 +6,9 @@ A focused WordPress plugin for brute-force login protection, login audit logging
 
 - **Tiered rate limiting.** Three progressive lockout tiers. Tier 1 shows a friendly error on the login form; tiers 2 and 3 return a hard HTTP 403 so the origin does almost no work — and Cloudflare's rate limiter can pick up the pattern at the edge for free.
 - **Known-IP leniency.** Users with a prior successful login from the current IP get roughly 3× more generous thresholds, so a real user fumbling their password isn't treated like an attacker.
+- **Admin overrides.** Unlock a single IP inline, or clear every active lockout in one click from Settings → Blockade.
 - **Login audit log.** Every successful login is recorded. The admin page shows the most recent 100.
-- **New-location email alerts.** The first successful login from a new IP (per user) triggers an email to the user's registered address.
+- **New-location email alerts.** The first successful login from a new IP (per user) triggers an email to the user's registered address. Can be disabled from the settings page.
 - **IP allow/ban lists.** One entry per line, IPv4/IPv6, CIDR supported. Allowed IPs skip all rate limiting. Banned IPs are hard-blocked with the same generic 403 used for rate-limit lockouts — an attacker cannot distinguish the two.
 - **Reverse-proxy aware.** Detects the real client IP via `CF-Connecting-IP`, then `X-Forwarded-For`, falling back to `REMOTE_ADDR`.
 - **Automatic retention.** Failed attempts are pruned after 48 hours; the login log after 60 days, via a single daily WP-Cron job.
@@ -43,11 +44,12 @@ Once installed, Blockade uses [Plugin Update Checker](https://github.com/YahnisE
 
 After activation, go to **Settings → Blockade**. The single page contains:
 
-1. **Allowed IPs** — whitelist that bypasses rate limiting. One per line, CIDR supported.
-2. **Banned IPs** — permanent hard-block list. One per line, CIDR supported.
-3. **Currently Locked Out IPs** — live view of IPs that have tripped a tier threshold.
-4. **Recent Successful Logins** — most recent 100.
-5. **Recent Failed Attempts** — most recent 100.
+1. **Notifications** — toggle new-location login email alerts.
+2. **Allowed IPs** — whitelist that bypasses rate limiting. One per line, CIDR supported.
+3. **Banned IPs** — permanent hard-block list. One per line, CIDR supported.
+4. **Currently Locked Out IPs** — live view of IPs that have tripped a tier threshold, with per-row **Unlock** and a bulk **Clear all lockouts** action.
+5. **Recent Successful Logins** — most recent 100.
+6. **Recent Failed Attempts** — most recent 100.
 
 No other configuration is needed. Defaults are tuned for typical sites.
 
@@ -94,10 +96,11 @@ Two custom tables, both `InnoDB`:
 - `{prefix}blockade_attempts` — failed login attempts (auto-pruned after 48h)
 - `{prefix}blockade_log` — successful logins (auto-pruned after 60d)
 
-Two `wp_options` entries hold the IP lists:
+Three `wp_options` entries hold the settings:
 
 - `blockade_allowed_ips`
 - `blockade_banned_ips`
+- `blockade_email_new_location_enabled`
 
 Client IPs are the only personal data stored. User agents are deliberately **not** logged (trivially spoofed; your web server's access log already has them).
 
@@ -110,7 +113,7 @@ Client IPs are the only personal data stored. User agents are deliberately **not
 
 ## Uninstall
 
-Deleting the plugin via WordPress runs `uninstall.php`, which drops both tables and deletes the two option keys. **Deactivating does not remove data** — the assumption is that the user may be toggling.
+Deleting the plugin via WordPress runs `uninstall.php`, which drops both tables and deletes the three option keys. **Deactivating does not remove data** — the assumption is that the user may be toggling.
 
 ## Contributing
 
