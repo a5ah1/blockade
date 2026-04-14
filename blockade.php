@@ -1,9 +1,11 @@
 <?php
 /**
  * Plugin Name: Blockade
+ * Plugin URI:  https://github.com/a5ah1/blockade
  * Description: Brute force login protection, login audit logging, and IP allow/ban list management.
- * Version:     1.0.1
- * Author:      Blockade
+ * Version:     1.0.2
+ * Author:      a5ah1
+ * Author URI:  https://github.com/a5ah1
  * License:     MIT
  * License URI: https://opensource.org/licenses/MIT
  * Text Domain: blockade
@@ -15,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'BLOCKADE_VERSION', '1.0.1' );
+define( 'BLOCKADE_VERSION', '1.0.2' );
 define( 'BLOCKADE_FILE', __FILE__ );
 define( 'BLOCKADE_DIR', plugin_dir_path( __FILE__ ) );
 

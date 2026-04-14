@@ -1,10 +1,10 @@
 === Blockade ===
-Contributors: blockade
+Contributors: a5ah1
 Tags: login, security, brute force, rate limit, ip ban
 Requires at least: 5.0
 Tested up to: 6.4
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -16,7 +16,8 @@ Blockade is a focused, performant WordPress plugin that:
 
 * Rate limits login attempts with a tiered lockout system (friendly warning on first tier, hard 403 on higher tiers).
 * Applies more generous thresholds to IPs that have a successful login history for the username being attempted.
-* Logs successful logins and notifies users by email the first time they log in from a new IP.
+* Lets admins unlock a single IP or clear every active lockout in one click.
+* Logs successful logins and optionally notifies users by email the first time they log in from a new IP.
 * Supports allow/ban lists with IPv4, IPv6, and CIDR notation.
 * Detects the real client IP behind Cloudflare and common reverse proxies.
 * Automatically prunes old records daily.
@@ -30,6 +31,11 @@ It intentionally does not include XML-RPC protection, 2FA, CAPTCHA, or firewalli
 3. Go to Settings → Blockade to view logs and configure IP lists.
 
 == Changelog ==
+
+= 1.0.2 =
+* Add a Notifications section on the settings page with a toggle for new-location login email alerts.
+* Add per-row Unlock and bulk "Clear all lockouts" actions to the Currently Locked Out IPs table.
+* Lay out the Allowed / Banned IP fields side-by-side on viewports 1280px and wider; consolidate format guidance into a single intro line.
 
 = 1.0.1 =
 * Collapse per-tier failure-count queries into one aggregate query on the login hot path.
