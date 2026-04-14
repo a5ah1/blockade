@@ -75,6 +75,32 @@ class Blockade_Admin {
 		$notice = isset( $_GET[ self::NOTICE_QUERY ] ) ? sanitize_key( $_GET[ self::NOTICE_QUERY ] ) : '';
 
 		?>
+		<style>
+			.blockade-ip-lists {
+				display: grid;
+				grid-template-columns: 1fr;
+				gap: 1.25em;
+				margin: 0.5em 0 1em;
+			}
+			@media (min-width: 1280px) {
+				.blockade-ip-lists {
+					grid-template-columns: 1fr 1fr;
+					gap: 2em;
+				}
+			}
+			.blockade-ip-lists .blockade-field label {
+				display: block;
+				font-weight: 600;
+				margin-bottom: 0.35em;
+			}
+			.blockade-ip-lists textarea {
+				width: 100%;
+				box-sizing: border-box;
+			}
+			.blockade-section-intro {
+				margin-top: 0.25em;
+			}
+		</style>
 		<div class="wrap">
 			<h1>Blockade</h1>
 
@@ -104,38 +130,30 @@ class Blockade_Admin {
 				</table>
 
 				<h2>IP Lists</h2>
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row">
-							<label for="<?php echo esc_attr( Blockade_Database::OPTION_ALLOWED_IPS ); ?>">Allowed IPs (one per line, CIDR notation supported)</label>
-						</th>
-						<td>
-							<textarea
-								id="<?php echo esc_attr( Blockade_Database::OPTION_ALLOWED_IPS ); ?>"
-								name="<?php echo esc_attr( Blockade_Database::OPTION_ALLOWED_IPS ); ?>"
-								rows="8"
-								cols="50"
-								class="large-text code"
-							><?php echo esc_textarea( $allowed ); ?></textarea>
-							<p class="description">These IPs will never be rate limited. Useful for your own IP, office networks, or VPNs.</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row">
-							<label for="<?php echo esc_attr( Blockade_Database::OPTION_BANNED_IPS ); ?>">Banned IPs (one per line, CIDR notation supported)</label>
-						</th>
-						<td>
-							<textarea
-								id="<?php echo esc_attr( Blockade_Database::OPTION_BANNED_IPS ); ?>"
-								name="<?php echo esc_attr( Blockade_Database::OPTION_BANNED_IPS ); ?>"
-								rows="8"
-								cols="50"
-								class="large-text code"
-							><?php echo esc_textarea( $banned ); ?></textarea>
-							<p class="description">These IPs will always be blocked from logging in.</p>
-						</td>
-					</tr>
-				</table>
+				<p class="description blockade-section-intro">One entry per line. IPv4, IPv6, and CIDR notation are supported.</p>
+
+				<div class="blockade-ip-lists">
+					<div class="blockade-field">
+						<label for="<?php echo esc_attr( Blockade_Database::OPTION_ALLOWED_IPS ); ?>">Allowed IPs</label>
+						<textarea
+							id="<?php echo esc_attr( Blockade_Database::OPTION_ALLOWED_IPS ); ?>"
+							name="<?php echo esc_attr( Blockade_Database::OPTION_ALLOWED_IPS ); ?>"
+							rows="10"
+							class="large-text code"
+						><?php echo esc_textarea( $allowed ); ?></textarea>
+						<p class="description">These IPs will never be rate limited. Useful for your own IP, office networks, or VPNs.</p>
+					</div>
+					<div class="blockade-field">
+						<label for="<?php echo esc_attr( Blockade_Database::OPTION_BANNED_IPS ); ?>">Banned IPs</label>
+						<textarea
+							id="<?php echo esc_attr( Blockade_Database::OPTION_BANNED_IPS ); ?>"
+							name="<?php echo esc_attr( Blockade_Database::OPTION_BANNED_IPS ); ?>"
+							rows="10"
+							class="large-text code"
+						><?php echo esc_textarea( $banned ); ?></textarea>
+						<p class="description">These IPs will always be blocked from logging in.</p>
+					</div>
+				</div>
 
 				<?php submit_button( 'Save Settings' ); ?>
 			</form>
