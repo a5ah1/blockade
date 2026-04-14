@@ -58,3 +58,34 @@ Lint all plugin PHP:
 ```
 for f in *.php includes/*.php; do php -l "$f"; done
 ```
+
+Install Composer deps (for a dev checkout; required for auto-updates to work locally):
+
+```
+composer install --no-dev
+```
+
+## Releasing
+
+Auto-updates use [yahnis-elsts/plugin-update-checker](https://github.com/YahnisElsts/plugin-update-checker) pointed at GitHub Releases with `enableReleaseAssets()`. The update checker pulls the **ZIP asset attached to each Release** — not the auto-generated source tarball, because `/vendor/` is gitignored and the tarball would be missing PUC itself.
+
+**This means: every Release MUST carry the built zip as an asset. Without it, updates install a broken plugin.**
+
+Release steps:
+
+1. Bump version in three places (keep them aligned):
+   - `Version:` header in `blockade.php`
+   - `BLOCKADE_VERSION` constant in `blockade.php`
+   - `Stable tag:` in `readme.txt`
+2. `./build.sh` — produces `blockade-v<VERSION>.zip` with `vendor/` bundled.
+3. Commit the version bump, push to `main`.
+4. Tag and push:
+   ```
+   git tag v<VERSION> && git push origin v<VERSION>
+   ```
+5. Create the GitHub Release with the built zip attached:
+   ```
+   gh release create v<VERSION> blockade-v<VERSION>.zip --title "v<VERSION>" --generate-notes
+   ```
+
+If a release ever ships without the zip asset, existing installs will try to update from the source tarball and break. Always verify the asset is attached before closing out a release.

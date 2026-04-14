@@ -1,0 +1,20 @@
+{
+  "name": "a5ah1/blockade",
+  "description": "Focused WordPress plugin for brute-force login protection, login audit logging, and IP allow/ban lists",
+  "type": "wordpress-plugin",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "a5ah1",
+      "homepage": "https://github.com/a5ah1/blockade"
+    }
+  ],
+  "require": {
+    "php": ">=7.4",
+    "yahnis-elsts/plugin-update-checker": "^5.6"
+  },
+  "config": {
+    "vendor-dir": "vendor",
+    "optimize-autoloader": true
+  }
+}

@@ -56,3 +56,19 @@ function blockade_bootstrap() {
 		Blockade_Admin::register();
 	}
 }
+
+$blockade_autoload = BLOCKADE_DIR . 'vendor/autoload.php';
+if ( file_exists( $blockade_autoload ) ) {
+	require_once $blockade_autoload;
+	add_action( 'plugins_loaded', 'blockade_updates_init' );
+}
+
+function blockade_updates_init() {
+	$checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+		'https://github.com/a5ah1/blockade/',
+		__FILE__,
+		'blockade'
+	);
+	$checker->setBranch( 'main' );
+	$checker->getVcsApi()->enableReleaseAssets();
+}
