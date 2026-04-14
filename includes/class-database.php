@@ -215,6 +215,33 @@ class Blockade_Database {
 		return $wpdb->get_results( $wpdb->prepare( $sql, $args ), ARRAY_A );
 	}
 
+	public static function delete_attempts_for_ip( $ip ) {
+		global $wpdb;
+
+		return (int) $wpdb->delete(
+			self::attempts_table(),
+			array( 'ip' => (string) $ip ),
+			array( '%s' )
+		);
+	}
+
+	public static function delete_attempts_for_ips( array $ips ) {
+		global $wpdb;
+
+		if ( empty( $ips ) ) {
+			return 0;
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $ips ), '%s' ) );
+
+		return (int) $wpdb->query(
+			$wpdb->prepare(
+				'DELETE FROM ' . self::attempts_table() . ' WHERE ip IN (' . $placeholders . ')',
+				$ips
+			)
+		);
+	}
+
 	public static function cleanup_attempts( $retention_seconds ) {
 		return self::cleanup_table( self::attempts_table(), 'attempted_at', $retention_seconds );
 	}

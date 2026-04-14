@@ -6,13 +6,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Blockade_Admin {
 
-	const MENU_SLUG    = 'blockade';
-	const SAVE_ACTION  = 'blockade_save_ips';
-	const NOTICE_QUERY = 'blockade_notice';
+	const MENU_SLUG             = 'blockade';
+	const SAVE_ACTION           = 'blockade_save_ips';
+	const UNLOCK_ACTION         = 'blockade_unlock_ip';
+	const CLEAR_LOCKOUTS_ACTION = 'blockade_clear_lockouts';
+	const NOTICE_QUERY          = 'blockade_notice';
 
 	public static function register() {
 		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ) );
 		add_action( 'admin_post_' . self::SAVE_ACTION, array( __CLASS__, 'handle_save' ) );
+		add_action( 'admin_post_' . self::UNLOCK_ACTION, array( __CLASS__, 'handle_unlock' ) );
+		add_action( 'admin_post_' . self::CLEAR_LOCKOUTS_ACTION, array( __CLASS__, 'handle_clear_lockouts' ) );
 	}
 
 	public static function add_menu() {
@@ -51,10 +55,55 @@ class Blockade_Admin {
 			set_transient( self::invalid_entries_transient_key(), $invalid, 60 );
 		}
 
+		self::redirect_with_notice( empty( $invalid ) ? 'saved' : 'saved_with_invalid' );
+	}
+
+	public static function handle_unlock() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Insufficient permissions.', '', array( 'response' => 403 ) );
+		}
+
+		check_admin_referer( self::UNLOCK_ACTION );
+
+		$ip = isset( $_POST['ip'] ) ? trim( (string) wp_unslash( $_POST['ip'] ) ) : '';
+
+		if ( ! Blockade_IP_Utils::is_valid_ip( $ip ) ) {
+			self::redirect_with_notice( 'unlock_invalid' );
+		}
+
+		Blockade_Database::delete_attempts_for_ip( $ip );
+		self::redirect_with_notice( 'unlocked' );
+	}
+
+	public static function handle_clear_lockouts() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Insufficient permissions.', '', array( 'response' => 403 ) );
+		}
+
+		check_admin_referer( self::CLEAR_LOCKOUTS_ACTION );
+
+		$summary = Blockade_Database::get_locked_out_summary( array_column( BLOCKADE_TIERS, 1 ) );
+		$locked  = self::compute_locked_out_rows( $summary );
+
+		if ( empty( $locked ) ) {
+			self::redirect_with_notice( 'cleared_none' );
+		}
+
+		$ips = array();
+		foreach ( $locked as $entry ) {
+			$ips[] = $entry['ip_row']['ip'];
+		}
+
+		Blockade_Database::delete_attempts_for_ips( $ips );
+		set_transient( self::cleared_count_transient_key(), count( $ips ), 60 );
+		self::redirect_with_notice( 'cleared' );
+	}
+
+	protected static function redirect_with_notice( $notice ) {
 		$redirect = add_query_arg(
 			array(
 				'page'             => self::MENU_SLUG,
-				self::NOTICE_QUERY => empty( $invalid ) ? 'saved' : 'saved_with_invalid',
+				self::NOTICE_QUERY => $notice,
 			),
 			admin_url( 'options-general.php' )
 		);
@@ -99,6 +148,13 @@ class Blockade_Admin {
 			}
 			.blockade-section-intro {
 				margin-top: 0.25em;
+			}
+			.blockade-inline-form {
+				display: inline;
+				margin: 0;
+			}
+			.blockade-clear-all {
+				margin-top: 0.75em;
 			}
 		</style>
 		<div class="wrap">
@@ -191,11 +247,27 @@ class Blockade_Admin {
 				}
 			}
 			echo '</ul></div>';
+		} elseif ( 'unlocked' === $notice ) {
+			echo '<div class="notice notice-success is-dismissible"><p>Lockout cleared.</p></div>';
+		} elseif ( 'unlock_invalid' === $notice ) {
+			echo '<div class="notice notice-error is-dismissible"><p>Could not unlock: the submitted IP was invalid.</p></div>';
+		} elseif ( 'cleared' === $notice ) {
+			$key   = self::cleared_count_transient_key();
+			$count = (int) get_transient( $key );
+			delete_transient( $key );
+			$label = 1 === $count ? '1 lockout' : sprintf( '%d lockouts', $count );
+			echo '<div class="notice notice-success is-dismissible"><p>Cleared ' . esc_html( $label ) . '.</p></div>';
+		} elseif ( 'cleared_none' === $notice ) {
+			echo '<div class="notice notice-warning is-dismissible"><p>No IPs were locked out.</p></div>';
 		}
 	}
 
 	protected static function invalid_entries_transient_key() {
 		return 'blockade_invalid_entries_' . get_current_user_id();
+	}
+
+	protected static function cleared_count_transient_key() {
+		return 'blockade_cleared_count_' . get_current_user_id();
 	}
 
 	protected static function render_table( array $headers, array $rows, $empty_message ) {
@@ -256,35 +328,89 @@ class Blockade_Admin {
 	}
 
 	protected static function render_locked_out_table() {
-		$windows = array_column( BLOCKADE_TIERS, 1 );
-		$summary = Blockade_Database::get_locked_out_summary( $windows );
+		$summary    = Blockade_Database::get_locked_out_summary( array_column( BLOCKADE_TIERS, 1 ) );
+		$locked     = self::compute_locked_out_rows( $summary );
 		$tier_count = count( BLOCKADE_TIERS );
 
 		$rows = array();
+		foreach ( $locked as $entry ) {
+			$ip_row = $entry['ip_row'];
+			$index  = $entry['tier_index'];
+			list( $max_attempts, $window_seconds, $lockout_seconds ) = BLOCKADE_TIERS[ $index ];
+
+			$count      = (int) $ip_row[ 'c_' . $index ];
+			$latest     = $ip_row['latest'];
+			$expires_at = $latest ? strtotime( $latest . ' UTC' ) + $lockout_seconds : time() + $lockout_seconds;
+
+			$rows[] = array(
+				'<code>' . esc_html( $ip_row['ip'] ) . '</code>',
+				'Tier ' . (int) ( $tier_count - $index ),
+				(string) $count,
+				esc_html( self::format_timestamp( gmdate( 'Y-m-d H:i:s', $expires_at ) ) ),
+				self::render_unlock_form( $ip_row['ip'] ),
+			);
+		}
+
+		self::render_table(
+			array( 'IP Address', 'Tier', 'Failures in Window', 'Lockout Expires (approx.)', 'Actions' ),
+			$rows,
+			'No IPs currently locked out.'
+		);
+
+		if ( ! empty( $rows ) ) {
+			self::render_clear_all_form( count( $rows ) );
+		}
+	}
+
+	protected static function compute_locked_out_rows( array $summary ) {
+		$rows = array();
 		foreach ( $summary as $ip_row ) {
 			foreach ( BLOCKADE_TIERS as $index => $tier ) {
-				list( $max_attempts, $window_seconds, $lockout_seconds ) = $tier;
-				$count = isset( $ip_row[ 'c_' . $index ] ) ? (int) $ip_row[ 'c_' . $index ] : 0;
+				$max_attempts = $tier[0];
+				$count        = isset( $ip_row[ 'c_' . $index ] ) ? (int) $ip_row[ 'c_' . $index ] : 0;
 				if ( $count >= $max_attempts ) {
-					$latest     = $ip_row['latest'];
-					$expires_at = $latest ? strtotime( $latest . ' UTC' ) + $lockout_seconds : time() + $lockout_seconds;
-
 					$rows[] = array(
-						'<code>' . esc_html( $ip_row['ip'] ) . '</code>',
-						'Tier ' . (int) ( $tier_count - $index ),
-						(string) $count,
-						esc_html( self::format_timestamp( gmdate( 'Y-m-d H:i:s', $expires_at ) ) ),
+						'ip_row'     => $ip_row,
+						'tier_index' => $index,
 					);
 					break;
 				}
 			}
 		}
+		return $rows;
+	}
 
-		self::render_table(
-			array( 'IP Address', 'Tier', 'Failures in Window', 'Lockout Expires (approx.)' ),
-			$rows,
-			'No IPs currently locked out.'
+	protected static function render_unlock_form( $ip ) {
+		ob_start();
+		?>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="blockade-inline-form">
+			<input type="hidden" name="action" value="<?php echo esc_attr( self::UNLOCK_ACTION ); ?>" />
+			<input type="hidden" name="ip" value="<?php echo esc_attr( $ip ); ?>" />
+			<?php wp_nonce_field( self::UNLOCK_ACTION ); ?>
+			<button type="submit" class="button-link button-link-delete">Unlock</button>
+		</form>
+		<?php
+		return (string) ob_get_clean();
+	}
+
+	protected static function render_clear_all_form( $count ) {
+		$confirm = sprintf(
+			'Clear %d lockout%s? This removes failed-attempt records for currently locked-out IPs only.',
+			(int) $count,
+			1 === (int) $count ? '' : 's'
 		);
+		?>
+		<form
+			method="post"
+			action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+			class="blockade-clear-all"
+			onsubmit="return confirm(<?php echo esc_attr( wp_json_encode( $confirm ) ); ?>);"
+		>
+			<input type="hidden" name="action" value="<?php echo esc_attr( self::CLEAR_LOCKOUTS_ACTION ); ?>" />
+			<?php wp_nonce_field( self::CLEAR_LOCKOUTS_ACTION ); ?>
+			<button type="submit" class="button button-secondary">Clear all lockouts</button>
+		</form>
+		<?php
 	}
 
 	protected static function format_timestamp( $utc_mysql ) {
