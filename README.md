@@ -118,4 +118,4 @@ Non-obvious security invariants (filter-priority ordering, password-hash-bypass 
 
 ## License
 
-GPL-2.0-or-later.
+MIT — see [`LICENSE`](LICENSE).

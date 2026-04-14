@@ -4,7 +4,8 @@
  * Description: Brute force login protection, login audit logging, and IP allow/ban list management.
  * Version:     1.0.0
  * Author:      Blockade
- * License:     GPL-2.0-or-later
+ * License:     MIT
+ * License URI: https://opensource.org/licenses/MIT
  * Text Domain: blockade
  * Requires at least: 5.0
  * Requires PHP: 7.4
