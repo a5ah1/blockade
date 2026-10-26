@@ -4,7 +4,7 @@ Tags: login, security, brute force, rate limit, ip ban
 Requires at least: 5.0
 Tested up to: 6.4
 Requires PHP: 7.4
-Stable tag: 1.0.3
+Stable tag: 1.0.4
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -31,6 +31,9 @@ It intentionally does not include XML-RPC protection, 2FA, CAPTCHA, or firewalli
 3. Go to Settings → Blockade to view logs and configure IP lists.
 
 == Changelog ==
+
+= 1.0.4 =
+* Packaging fix: the 1.0.3 release zip accidentally included local development files (test scripts and notes). They contained no secrets. This update removes them. No functional changes.
 
 = 1.0.3 =
 * New-location login alerts are now limited to selected roles, defaulting to Administrator only. Sites with many customers or subscribers no longer email every user. This also applies to existing installs as soon as they upgrade.

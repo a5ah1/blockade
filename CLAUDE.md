@@ -92,7 +92,7 @@ Release steps:
    - `Version:` header in `blockade.php`
    - `BLOCKADE_VERSION` constant in `blockade.php`
    - `Stable tag:` in `readme.txt`
-2. `./build.sh` — produces `blockade-v<VERSION>.zip` with `vendor/` bundled.
+2. `./build.sh` produces `blockade-v<VERSION>.zip` with `vendor/` bundled. It ships **only git-tracked files plus `vendor/`**, minus the dev files listed in its `grep -v` (for example `CLAUDE.md` and the composer files). That way untracked local files such as `ignore/`, `TODO.md` or `.env` can't leak, as they did in the first v1.0.3 zip. Any new file that should ship must be tracked in git before building. Always check the result with `unzip -Z1 blockade-v<VERSION>.zip | grep -v vendor/`.
 3. Commit the version bump, push to `main`.
 4. Tag and push:
    ```

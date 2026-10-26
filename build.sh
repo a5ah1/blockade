@@ -23,24 +23,18 @@ composer install --no-dev --optimize-autoloader --quiet
 
 mkdir -p "$BUILD_DIR/$PLUGIN_SLUG"
 
-rsync -a \
-  --exclude='.git' \
-  --exclude='.gitignore' \
-  --exclude='.claude' \
-  --exclude='CLAUDE.md' \
-  --exclude='composer.json' \
-  --exclude='composer.lock' \
-  --exclude='build.sh' \
-  --exclude='*.zip' \
-  --exclude='.DS_Store' \
-  --exclude='*.log' \
-  --exclude='.idea' \
-  --exclude='.vscode' \
-  --exclude='node_modules' \
-  "$PLUGIN_DIR/" "$BUILD_DIR/$PLUGIN_SLUG/"
+# Ship only git-tracked files plus vendor/. Untracked local files (test harness,
+# notes, .env) can never leak into a release, whatever .gitignore says.
+{
+  git -C "$PLUGIN_DIR" ls-files
+  find vendor -type f
+} | grep -v -x -E 'CLAUDE\.md|composer\.(json|lock)|build\.sh|\.gitignore' \
+  | rsync -a --files-from=- "$PLUGIN_DIR/" "$BUILD_DIR/$PLUGIN_SLUG/"
 
 echo "Creating ZIP archive..."
 cd "$BUILD_DIR"
+# zip -r updates an existing archive in place, so stale entries would survive.
+rm -f "$ZIP_FILE"
 zip -rq "$ZIP_FILE" "$PLUGIN_SLUG/"
 
 rm -rf "$BUILD_DIR"
