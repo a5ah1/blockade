@@ -87,17 +87,24 @@ class Blockade_Auth_Guard {
 			return;
 		}
 
-		$is_new_ip = ! Blockade_Database::ip_has_login_for_user_id( $ip, $user->ID );
+		// A user's first recorded login is a baseline, not an alert: it keeps installs on
+		// existing sites (and users whose history aged out of retention) quiet.
+		$is_new_ip    = ! Blockade_Database::ip_has_login_for_user_id( $ip, $user->ID );
+		$has_baseline = $is_new_ip && Blockade_Database::user_has_login_history( $user->ID );
 
 		Blockade_Database::record_successful_login( $user->ID, $ip );
 
-		if ( $is_new_ip ) {
+		if ( $is_new_ip && $has_baseline ) {
 			self::send_new_ip_notification( $user, $ip );
 		}
 	}
 
 	protected static function send_new_ip_notification( $user, $ip ) {
 		if ( '1' !== (string) get_option( Blockade_Database::OPTION_EMAIL_NEW_LOCATION_ENABLED, '1' ) ) {
+			return;
+		}
+
+		if ( ! array_intersect( (array) $user->roles, Blockade_Database::get_email_alert_roles() ) ) {
 			return;
 		}
 

@@ -48,6 +48,10 @@ Breaking any of these silently weakens the plugin:
 
 - **Email-alert toggle defaults to `'1'` at the read site, not just at install.** `Blockade_Auth_Guard::send_new_ip_notification` reads `get_option( OPTION_EMAIL_NEW_LOCATION_ENABLED, '1' )`. The `'1'` default is load-bearing: it preserves pre-1.0.2 behavior (emails on) for installs that upgrade before the admin touches the new setting, since activation only runs on fresh installs. Don't refactor the default to `false` or drop it.
 
+- **Alert roles default to `administrator` at the read site.** `Blockade_Database::get_email_alert_roles()` falls back to `DEFAULT_EMAIL_ALERT_ROLES` when the option is missing. Nothing is seeded at activation, so this fallback is the only reason upgraded installs move to admin-only alerts. A saved empty array is valid and means "alert no one". Never default to all roles: on WooCommerce sites that emails every customer.
+
+- **A user's first recorded login never sends an alert.** `on_login_success` only alerts when the IP is new *and* the user already has login history (`user_has_login_history`). This keeps installs on existing sites quiet, and covers users whose history aged out after the 60-day retention.
+
 ## Client IP resolution
 
 `Blockade_IP_Utils::get_client_ip` trusts `HTTP_CF_CONNECTING_IP`, then the first entry of `HTTP_X_FORWARDED_FOR`, then `REMOTE_ADDR`. Known limitation: sites not behind a trusted proxy can be spoofed via forged `X-Forwarded-For`. If configurability is added, gate header trust behind an option — don't silently change the fallback order.

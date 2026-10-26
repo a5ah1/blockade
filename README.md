@@ -8,7 +8,7 @@ A focused WordPress plugin for brute-force login protection, login audit logging
 - **Known-IP leniency.** Users with a prior successful login from the current IP get roughly 3× more generous thresholds, so a real user fumbling their password isn't treated like an attacker.
 - **Admin overrides.** Unlock a single IP inline, or clear every active lockout in one click from Settings → Blockade.
 - **Login audit log.** Every successful login is recorded. The admin page shows the most recent 100.
-- **New-location email alerts.** The first successful login from a new IP (per user) triggers an email to the user's registered address. Can be disabled from the settings page.
+- **New-location email alerts.** When a user in an alerted role (Administrator by default) logs in from an IP they haven't used before, Blockade emails their registered address. A user's first recorded login is logged silently and sets their baseline, so installing on an existing site sends no emails. You can choose the roles or turn alerts off on the settings page.
 - **IP allow/ban lists.** One entry per line, IPv4/IPv6, CIDR supported. Allowed IPs skip all rate limiting. Banned IPs are hard-blocked with the same generic 403 used for rate-limit lockouts — an attacker cannot distinguish the two.
 - **Reverse-proxy aware.** Detects the real client IP via `CF-Connecting-IP`, then `X-Forwarded-For`, falling back to `REMOTE_ADDR`.
 - **Automatic retention.** Failed attempts are pruned after 48 hours; the login log after 60 days, via a single daily WP-Cron job.
@@ -44,7 +44,7 @@ Once installed, Blockade uses [Plugin Update Checker](https://github.com/YahnisE
 
 After activation, go to **Settings → Blockade**. The single page contains:
 
-1. **Notifications** — toggle new-location login email alerts.
+1. **Notifications**: turn new-location login email alerts on or off, and choose which roles receive them.
 2. **Allowed IPs** — whitelist that bypasses rate limiting. One per line, CIDR supported.
 3. **Banned IPs** — permanent hard-block list. One per line, CIDR supported.
 4. **Currently Locked Out IPs** — live view of IPs that have tripped a tier threshold, with per-row **Unlock** and a bulk **Clear all lockouts** action.
@@ -101,6 +101,7 @@ Three `wp_options` entries hold the settings:
 - `blockade_allowed_ips`
 - `blockade_banned_ips`
 - `blockade_email_new_location_enabled`
+- `blockade_email_alert_roles`
 
 Client IPs are the only personal data stored. User agents are deliberately **not** logged (trivially spoofed; your web server's access log already has them).
 

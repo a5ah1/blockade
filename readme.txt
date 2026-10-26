@@ -4,7 +4,7 @@ Tags: login, security, brute force, rate limit, ip ban
 Requires at least: 5.0
 Tested up to: 6.4
 Requires PHP: 7.4
-Stable tag: 1.0.2
+Stable tag: 1.0.3
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -17,7 +17,7 @@ Blockade is a focused, performant WordPress plugin that:
 * Rate limits login attempts with a tiered lockout system (friendly warning on first tier, hard 403 on higher tiers).
 * Applies more generous thresholds to IPs that have a successful login history for the username being attempted.
 * Lets admins unlock a single IP or clear every active lockout in one click.
-* Logs successful logins and optionally notifies users by email the first time they log in from a new IP.
+* Logs successful logins and optionally emails users in selected roles (administrators by default) when they log in from a new IP.
 * Supports allow/ban lists with IPv4, IPv6, and CIDR notation.
 * Detects the real client IP behind Cloudflare and common reverse proxies.
 * Automatically prunes old records daily.
@@ -31,6 +31,10 @@ It intentionally does not include XML-RPC protection, 2FA, CAPTCHA, or firewalli
 3. Go to Settings → Blockade to view logs and configure IP lists.
 
 == Changelog ==
+
+= 1.0.3 =
+* New-location login alerts are now limited to selected roles, defaulting to Administrator only. Sites with many customers or subscribers no longer email every user. This also applies to existing installs as soon as they upgrade.
+* A user's first recorded login is logged silently and doesn't send an alert. Alerts start with the second distinct IP, so installing on an existing site sends no emails.
 
 = 1.0.2 =
 * Add a Notifications section on the settings page with a toggle for new-location login email alerts.

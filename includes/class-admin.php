@@ -49,6 +49,12 @@ class Blockade_Admin {
 			isset( $_POST[ Blockade_Database::OPTION_EMAIL_NEW_LOCATION_ENABLED ] ) ? '1' : ''
 		);
 
+		$posted_roles = isset( $_POST[ Blockade_Database::OPTION_EMAIL_ALERT_ROLES ] ) ? (array) wp_unslash( $_POST[ Blockade_Database::OPTION_EMAIL_ALERT_ROLES ] ) : array();
+		update_option(
+			Blockade_Database::OPTION_EMAIL_ALERT_ROLES,
+			array_values( array_intersect( array_map( 'sanitize_key', $posted_roles ), array_keys( wp_roles()->get_names() ) ) )
+		);
+
 		$invalid = array_merge( $allowed_invalid, $banned_invalid );
 
 		if ( ! empty( $invalid ) ) {
@@ -120,6 +126,7 @@ class Blockade_Admin {
 		$allowed       = (string) get_option( Blockade_Database::OPTION_ALLOWED_IPS, '' );
 		$banned        = (string) get_option( Blockade_Database::OPTION_BANNED_IPS, '' );
 		$email_enabled = '1' === (string) get_option( Blockade_Database::OPTION_EMAIL_NEW_LOCATION_ENABLED, '1' );
+		$alert_roles   = Blockade_Database::get_email_alert_roles();
 
 		$notice = isset( $_GET[ self::NOTICE_QUERY ] ) ? sanitize_key( $_GET[ self::NOTICE_QUERY ] ) : '';
 
@@ -180,7 +187,26 @@ class Blockade_Admin {
 								/>
 								Email the user when they log in from an IP address they haven't used before.
 							</label>
-							<p class="description">Sent once per (user, IP) pair on the first successful login from that IP. Uncheck to disable all Blockade emails.</p>
+							<p class="description">Sent once per (user, IP) pair on the first successful login from that IP. A user's very first recorded login is logged silently and never alerts. Uncheck to disable all Blockade emails.</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">Alert these roles</th>
+						<td>
+							<fieldset>
+								<?php foreach ( wp_roles()->get_names() as $role_slug => $role_name ) : ?>
+									<label>
+										<input
+											type="checkbox"
+											name="<?php echo esc_attr( Blockade_Database::OPTION_EMAIL_ALERT_ROLES ); ?>[]"
+											value="<?php echo esc_attr( $role_slug ); ?>"
+											<?php checked( in_array( $role_slug, $alert_roles, true ) ); ?>
+										/>
+										<?php echo esc_html( translate_user_role( $role_name ) ); ?>
+									</label><br />
+								<?php endforeach; ?>
+							</fieldset>
+							<p class="description">Only users with at least one checked role receive alerts. Defaults to Administrator only — avoid checking roles like Customer or Subscriber on sites with many users.</p>
 						</td>
 					</tr>
 				</table>

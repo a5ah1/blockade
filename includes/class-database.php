@@ -9,6 +9,14 @@ class Blockade_Database {
 	const OPTION_ALLOWED_IPS                = 'blockade_allowed_ips';
 	const OPTION_BANNED_IPS                 = 'blockade_banned_ips';
 	const OPTION_EMAIL_NEW_LOCATION_ENABLED = 'blockade_email_new_location_enabled';
+	const OPTION_EMAIL_ALERT_ROLES          = 'blockade_email_alert_roles';
+
+	const DEFAULT_EMAIL_ALERT_ROLES = array( 'administrator' );
+
+	public static function get_email_alert_roles() {
+		$roles = get_option( self::OPTION_EMAIL_ALERT_ROLES, self::DEFAULT_EMAIL_ALERT_ROLES );
+		return is_array( $roles ) ? array_values( array_map( 'strval', $roles ) ) : self::DEFAULT_EMAIL_ALERT_ROLES;
+	}
 
 	public static function attempts_table() {
 		global $wpdb;
@@ -153,6 +161,19 @@ class Blockade_Database {
 			$wpdb->prepare(
 				'SELECT 1 FROM ' . self::log_table() . ' WHERE ip = %s AND user_id = %d LIMIT 1',
 				$ip,
+				(int) $user_id
+			)
+		);
+
+		return ! empty( $found );
+	}
+
+	public static function user_has_login_history( $user_id ) {
+		global $wpdb;
+
+		$found = $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT 1 FROM ' . self::log_table() . ' WHERE user_id = %d LIMIT 1',
 				(int) $user_id
 			)
 		);
