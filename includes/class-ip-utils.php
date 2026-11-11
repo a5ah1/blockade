@@ -59,8 +59,7 @@ class Blockade_IP_Utils {
 	 * Cloudflare-ranges filter, so the admin diagnostic can preview every mode.
 	 */
 	public static function resolve_ip( $source, array $server, $trusted_proxies_raw = '' ) {
-		$remote = self::server_value( $server, 'REMOTE_ADDR' );
-		$remote = self::is_valid_ip( $remote ) ? $remote : '';
+		$remote = self::normalize_ip( self::server_value( $server, 'REMOTE_ADDR' ) );
 
 		switch ( $source ) {
 			case self::SOURCE_DIRECT:
@@ -68,8 +67,8 @@ class Blockade_IP_Utils {
 
 			case self::SOURCE_CLOUDFLARE:
 				if ( '' !== $remote && self::is_cloudflare_ip( $remote ) ) {
-					$cf = self::server_value( $server, 'HTTP_CF_CONNECTING_IP' );
-					if ( self::is_valid_ip( $cf ) ) {
+					$cf = self::normalize_ip( self::server_value( $server, 'HTTP_CF_CONNECTING_IP' ) );
+					if ( '' !== $cf ) {
 						return $cf;
 					}
 				}
@@ -115,15 +114,13 @@ class Blockade_IP_Utils {
 			return $remote;
 		}
 
-		$forwarded = self::server_value( $server, 'HTTP_X_FORWARDED_FOR' );
-		if ( '' === $forwarded ) {
-			return $remote;
-		}
-
 		$hop = $remote;
-		foreach ( array_reverse( explode( ',', $forwarded ) ) as $entry ) {
-			$entry = trim( $entry );
-			if ( ! self::is_valid_ip( $entry ) ) {
+		foreach ( array_reverse( self::forwarded_entries( $server ) ) as $raw_entry ) {
+			if ( '' === trim( $raw_entry ) ) {
+				continue;
+			}
+			$entry = self::normalize_ip( $raw_entry );
+			if ( '' === $entry ) {
 				return $hop;
 			}
 			$hop = $entry;
@@ -133,6 +130,40 @@ class Blockade_IP_Utils {
 		}
 
 		return $hop;
+	}
+
+	/**
+	 * X-Forwarded-For split into raw entries. Deliberately not run through
+	 * sanitize_text_field: it empties the whole string on invalid UTF-8, which
+	 * would let a client discard the hops a trusted proxy appended. Each entry
+	 * is validated by normalize_ip() before use.
+	 */
+	public static function forwarded_entries( array $server ) {
+		if ( empty( $server['HTTP_X_FORWARDED_FOR'] ) || ! is_string( $server['HTTP_X_FORWARDED_FOR'] ) ) {
+			return array();
+		}
+		return explode( ',', wp_unslash( $server['HTTP_X_FORWARDED_FOR'] ) );
+	}
+
+	/**
+	 * Reduce a header or REMOTE_ADDR value to a bare IP: strips "[v6]:port" and
+	 * "v4:port", and turns IPv4-mapped IPv6 (::ffff:1.2.3.4) into plain IPv4 so it
+	 * matches IPv4 ranges. Returns '' when no valid IP remains. Not used by legacy.
+	 */
+	public static function normalize_ip( $value ) {
+		$value = trim( (string) $value );
+
+		if ( preg_match( '/^\[([^\]]+)\](?::\d+)?$/', $value, $m ) ) {
+			$value = $m[1];
+		} elseif ( preg_match( '/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/', $value, $m ) ) {
+			$value = $m[1];
+		}
+
+		if ( preg_match( '/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i', $value, $m ) ) {
+			$value = $m[1];
+		}
+
+		return self::is_valid_ip( $value ) ? $value : '';
 	}
 
 	public static function get_cloudflare_ranges() {

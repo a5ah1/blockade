@@ -65,7 +65,8 @@ Breaking any of these silently weakens the plugin:
 - `legacy` (default): `HTTP_CF_CONNECTING_IP`, then the first `HTTP_X_FORWARDED_FOR` entry, then `REMOTE_ADDR`, trusting headers from anyone. Spoofable when the origin is reachable directly. Kept byte-for-byte as pre-1.0.5 behavior; don't "harden" it in place, because that silently changes IP identity on upgrade. Steer users to another mode via the admin diagnostic instead.
 - `direct`: `REMOTE_ADDR` only.
 - `cloudflare`: `CF-Connecting-IP` only when `REMOTE_ADDR` is in `CLOUDFLARE_RANGES` (filterable via `blockade_cloudflare_ranges`), else `REMOTE_ADDR`.
-- `proxy`: walk `X-Forwarded-For` right to left from `REMOTE_ADDR`, skipping entries in `blockade_trusted_proxies`; return the first untrusted hop. Never take the leftmost entry: the client wrote it.
+- `proxy`: walk `X-Forwarded-For` right to left from `REMOTE_ADDR`, skipping entries in `blockade_trusted_proxies`; return the first untrusted hop. Never take the leftmost entry: the client wrote it. Read the header raw (`forwarded_entries`), not via `sanitize_text_field`: that empties the whole string on invalid UTF-8, so a client could discard the hops the proxy appended. Empty entries are skipped.
+- Non-legacy modes pass addresses through `normalize_ip` (strips `:port` / `[v6]`, maps `::ffff:a.b.c.d` to IPv4 so it matches IPv4 ranges). Legacy deliberately doesn't.
 
 `resolve_ip` must stay side-effect free (apart from the ranges filter): the admin diagnostic calls it for every mode to preview what each would resolve to. `Blockade_Admin::recommend_ip_source` / `ip_source_warnings` drive the suggestions; they read only the passed `$server` array so they can be tested.
 
