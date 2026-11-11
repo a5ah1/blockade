@@ -55,7 +55,16 @@ class Blockade_Admin {
 			array_values( array_intersect( array_map( 'sanitize_key', $posted_roles ), array_keys( wp_roles()->get_names() ) ) )
 		);
 
-		$invalid = array_merge( $allowed_invalid, $banned_invalid );
+		$posted_source = isset( $_POST[ Blockade_Database::OPTION_IP_SOURCE ] ) ? sanitize_key( wp_unslash( $_POST[ Blockade_Database::OPTION_IP_SOURCE ] ) ) : '';
+		if ( in_array( $posted_source, Blockade_IP_Utils::SOURCES, true ) ) {
+			update_option( Blockade_Database::OPTION_IP_SOURCE, $posted_source );
+		}
+
+		$raw_proxies                             = isset( $_POST[ Blockade_Database::OPTION_TRUSTED_PROXIES ] ) ? (string) wp_unslash( $_POST[ Blockade_Database::OPTION_TRUSTED_PROXIES ] ) : '';
+		list( $proxies_valid, $proxies_invalid ) = Blockade_IP_Utils::parse_list( $raw_proxies );
+		update_option( Blockade_Database::OPTION_TRUSTED_PROXIES, implode( "\n", $proxies_valid ) );
+
+		$invalid = array_merge( $allowed_invalid, $banned_invalid, $proxies_invalid );
 
 		if ( ! empty( $invalid ) ) {
 			set_transient( self::invalid_entries_transient_key(), $invalid, 60 );
@@ -127,6 +136,8 @@ class Blockade_Admin {
 		$banned        = (string) get_option( Blockade_Database::OPTION_BANNED_IPS, '' );
 		$email_enabled = '1' === (string) get_option( Blockade_Database::OPTION_EMAIL_NEW_LOCATION_ENABLED, '1' );
 		$alert_roles   = Blockade_Database::get_email_alert_roles();
+		$ip_source     = Blockade_Database::get_ip_source();
+		$proxies       = (string) get_option( Blockade_Database::OPTION_TRUSTED_PROXIES, '' );
 
 		$notice = isset( $_GET[ self::NOTICE_QUERY ] ) ? sanitize_key( $_GET[ self::NOTICE_QUERY ] ) : '';
 
@@ -162,6 +173,14 @@ class Blockade_Admin {
 			}
 			.blockade-clear-all {
 				margin-top: 0.75em;
+			}
+			.blockade-ip-diagnostic {
+				max-width: 960px;
+				margin: 0.5em 0 1em;
+			}
+			.blockade-ip-diagnostic td,
+			.blockade-ip-diagnostic th {
+				vertical-align: top;
 			}
 		</style>
 		<div class="wrap">
@@ -207,6 +226,42 @@ class Blockade_Admin {
 								<?php endforeach; ?>
 							</fieldset>
 							<p class="description">Only users with at least one checked role receive alerts. Defaults to Administrator only — avoid checking roles like Customer or Subscriber on sites with many users.</p>
+						</td>
+					</tr>
+				</table>
+
+				<h2>Client IP Detection</h2>
+				<?php self::render_ip_diagnostic( $ip_source, $proxies ); ?>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row">IP address source</th>
+						<td>
+							<fieldset>
+								<?php foreach ( self::ip_source_labels() as $value => $label ) : ?>
+									<label>
+										<input
+											type="radio"
+											name="<?php echo esc_attr( Blockade_Database::OPTION_IP_SOURCE ); ?>"
+											value="<?php echo esc_attr( $value ); ?>"
+											<?php checked( $ip_source, $value ); ?>
+										/>
+										<strong><?php echo esc_html( $label[0] ); ?></strong> — <?php echo esc_html( $label[1] ); ?>
+									</label><br />
+								<?php endforeach; ?>
+							</fieldset>
+							<p class="description">Rate limits, bans and the allow list all key on this address. Changing it re-keys future attempts; existing records stay under the address they were recorded with.</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="<?php echo esc_attr( Blockade_Database::OPTION_TRUSTED_PROXIES ); ?>">Trusted proxies</label></th>
+						<td>
+							<textarea
+								id="<?php echo esc_attr( Blockade_Database::OPTION_TRUSTED_PROXIES ); ?>"
+								name="<?php echo esc_attr( Blockade_Database::OPTION_TRUSTED_PROXIES ); ?>"
+								rows="4"
+								class="large-text code"
+							><?php echo esc_textarea( $proxies ); ?></textarea>
+							<p class="description">Used only by <strong>Trusted proxy</strong>. One IP or CIDR range per line: the addresses of your load balancer or reverse proxy. If Cloudflare sits in front of that proxy, add Cloudflare's ranges too.</p>
 						</td>
 					</tr>
 				</table>
@@ -286,6 +341,132 @@ class Blockade_Admin {
 		} elseif ( 'cleared_none' === $notice ) {
 			echo '<div class="notice notice-warning is-dismissible"><p>No IPs were locked out.</p></div>';
 		}
+	}
+
+	protected static function ip_source_labels() {
+		return array(
+			Blockade_IP_Utils::SOURCE_LEGACY     => array( 'Legacy', 'CF-Connecting-IP, then X-Forwarded-For, then REMOTE_ADDR, trusting the headers from anyone. Pre-1.0.5 behavior; can be spoofed if the server is reachable without a proxy.' ),
+			Blockade_IP_Utils::SOURCE_DIRECT     => array( 'Direct', 'REMOTE_ADDR only. Use when there is no proxy, or the web server already restores the visitor IP (e.g. mod_remoteip, nginx real_ip).' ),
+			Blockade_IP_Utils::SOURCE_CLOUDFLARE => array( 'Cloudflare', 'CF-Connecting-IP only when the request comes from a Cloudflare IP range; otherwise REMOTE_ADDR.' ),
+			Blockade_IP_Utils::SOURCE_PROXY      => array( 'Trusted proxy', 'X-Forwarded-For read right to left, skipping the proxies listed below; REMOTE_ADDR when the request does not come from a listed proxy.' ),
+		);
+	}
+
+	/**
+	 * Suggest a source mode from what the current request looks like.
+	 *
+	 * @return array{0:string,1:string}|null [ mode, reason ] or null when nothing can be inferred.
+	 */
+	public static function recommend_ip_source( array $server, $proxies_raw ) {
+		$remote = isset( $server['REMOTE_ADDR'] ) ? trim( (string) $server['REMOTE_ADDR'] ) : '';
+		if ( ! Blockade_IP_Utils::is_valid_ip( $remote ) ) {
+			return null;
+		}
+
+		$cf_header  = isset( $server['HTTP_CF_CONNECTING_IP'] ) ? trim( (string) $server['HTTP_CF_CONNECTING_IP'] ) : '';
+		$has_xff    = ! empty( $server['HTTP_X_FORWARDED_FOR'] );
+		$is_proxied = '' !== $cf_header || $has_xff;
+
+		if ( Blockade_IP_Utils::list_contains_ip( $remote, $proxies_raw ) ) {
+			return array( Blockade_IP_Utils::SOURCE_PROXY, 'This request came from an address in your Trusted proxies list.' );
+		}
+
+		if ( Blockade_IP_Utils::is_cloudflare_ip( $remote ) ) {
+			return array( Blockade_IP_Utils::SOURCE_CLOUDFLARE, 'This request reached the server from a Cloudflare address, so REMOTE_ADDR is Cloudflare\'s, not yours.' );
+		}
+
+		if ( ! Blockade_IP_Utils::is_public_ip( $remote ) && $is_proxied ) {
+			return array( Blockade_IP_Utils::SOURCE_PROXY, 'REMOTE_ADDR is a private address and forwarding headers are present, so a proxy or load balancer sits in front of this server. Add its address (' . $remote . ') to Trusted proxies.' );
+		}
+
+		if ( '' !== $cf_header && $cf_header === $remote ) {
+			return array( Blockade_IP_Utils::SOURCE_DIRECT, 'The request came through Cloudflare, but the web server has already restored your real address into REMOTE_ADDR.' );
+		}
+
+		return array( Blockade_IP_Utils::SOURCE_DIRECT, 'REMOTE_ADDR does not belong to Cloudflare or a known proxy, so it is the visitor\'s own address.' );
+	}
+
+	/**
+	 * Warnings about the saved mode, given the current request.
+	 *
+	 * @return string[]
+	 */
+	public static function ip_source_warnings( $source, array $server, $proxies_raw ) {
+		$warnings = array();
+		$remote   = isset( $server['REMOTE_ADDR'] ) ? trim( (string) $server['REMOTE_ADDR'] ) : '';
+		$valid    = Blockade_IP_Utils::is_valid_ip( $remote );
+		$behind   = $valid && ( Blockade_IP_Utils::is_cloudflare_ip( $remote )
+			|| ( ! Blockade_IP_Utils::is_public_ip( $remote ) && ( ! empty( $server['HTTP_X_FORWARDED_FOR'] ) || ! empty( $server['HTTP_CF_CONNECTING_IP'] ) ) ) );
+
+		if ( Blockade_IP_Utils::SOURCE_LEGACY === $source ) {
+			$warnings[] = 'Legacy mode trusts CF-Connecting-IP and X-Forwarded-For from any sender. If this server can be reached without going through your proxy, an attacker can send a new fake address with each login attempt to avoid rate limits, or send someone else\'s address to get them locked out.';
+		}
+
+		if ( Blockade_IP_Utils::SOURCE_DIRECT === $source && $behind ) {
+			$warnings[] = 'Direct mode is selected, but this request came through a proxy (' . $remote . '). Every visitor will appear to have the proxy\'s address, and one lockout will block everyone.';
+		}
+
+		if ( Blockade_IP_Utils::SOURCE_CLOUDFLARE === $source && $valid && ! Blockade_IP_Utils::is_cloudflare_ip( $remote ) && $behind ) {
+			$warnings[] = 'Cloudflare mode is selected, but this request came from a non-Cloudflare proxy (' . $remote . '). Every visitor will appear to have that address. Use Trusted proxy instead.';
+		}
+
+		if ( Blockade_IP_Utils::SOURCE_PROXY === $source ) {
+			if ( '' === trim( (string) $proxies_raw ) ) {
+				$warnings[] = 'Trusted proxy mode is selected but no proxies are listed, so Blockade uses REMOTE_ADDR.';
+			} elseif ( $valid && ! Blockade_IP_Utils::list_contains_ip( $remote, $proxies_raw ) && $behind ) {
+				$warnings[] = 'This request came from ' . $remote . ', which is not in your Trusted proxies list, so forwarding headers were ignored for it.';
+			}
+		}
+
+		return $warnings;
+	}
+
+	protected static function render_ip_diagnostic( $source, $proxies ) {
+		$server = $_SERVER;
+		$labels = self::ip_source_labels();
+		$rec    = self::recommend_ip_source( $server, $proxies );
+
+		$show = function ( $key ) use ( $server ) {
+			if ( empty( $server[ $key ] ) ) {
+				return '<em>not present</em>';
+			}
+			return '<code>' . esc_html( sanitize_text_field( wp_unslash( (string) $server[ $key ] ) ) ) . '</code>';
+		};
+
+		echo '<p class="description blockade-section-intro">Based on <strong>your current request</strong>. If you reach wp-admin by a different route than visitors (a hosts-file entry, VPN, or direct server IP), these results may not match theirs.</p>';
+
+		foreach ( self::ip_source_warnings( $source, $server, $proxies ) as $warning ) {
+			echo '<div class="notice notice-warning inline"><p>' . esc_html( $warning ) . '</p></div>';
+		}
+
+		if ( $rec && $rec[0] !== $source ) {
+			echo '<div class="notice notice-info inline"><p><strong>Suggested: ' . esc_html( $labels[ $rec[0] ][0] ) . '.</strong> ' . esc_html( $rec[1] ) . '</p></div>';
+		} elseif ( $rec ) {
+			echo '<div class="notice notice-success inline"><p><strong>' . esc_html( $labels[ $source ][0] ) . ' looks right for this server.</strong> ' . esc_html( $rec[1] ) . '</p></div>';
+		}
+
+		$remote = isset( $server['REMOTE_ADDR'] ) ? trim( (string) $server['REMOTE_ADDR'] ) : '';
+		$kind   = '';
+		if ( Blockade_IP_Utils::is_valid_ip( $remote ) ) {
+			if ( Blockade_IP_Utils::is_cloudflare_ip( $remote ) ) {
+				$kind = ' (Cloudflare)';
+			} elseif ( Blockade_IP_Utils::list_contains_ip( $remote, $proxies ) ) {
+				$kind = ' (trusted proxy)';
+			} elseif ( ! Blockade_IP_Utils::is_public_ip( $remote ) ) {
+				$kind = ' (private/reserved)';
+			}
+		}
+
+		echo '<table class="widefat striped blockade-ip-diagnostic"><tbody>';
+		echo '<tr><th>REMOTE_ADDR</th><td>' . $show( 'REMOTE_ADDR' ) . esc_html( $kind ) . '</td></tr>';
+		echo '<tr><th>CF-Connecting-IP</th><td>' . $show( 'HTTP_CF_CONNECTING_IP' ) . '</td></tr>';
+		echo '<tr><th>X-Forwarded-For</th><td>' . $show( 'HTTP_X_FORWARDED_FOR' ) . '</td></tr>';
+		foreach ( $labels as $mode => $label ) {
+			$ip     = Blockade_IP_Utils::resolve_ip( $mode, $server, $proxies );
+			$marker = $mode === $source ? ' <strong>← in use</strong>' : '';
+			echo '<tr><th>' . esc_html( $label[0] ) . ' would use</th><td>' . ( '' === $ip ? '<em>none</em>' : '<code>' . esc_html( $ip ) . '</code>' ) . $marker . '</td></tr>';
+		}
+		echo '</tbody></table>';
 	}
 
 	protected static function invalid_entries_transient_key() {

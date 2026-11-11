@@ -6,31 +6,153 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Blockade_IP_Utils {
 
+	const SOURCE_LEGACY     = 'legacy';
+	const SOURCE_DIRECT     = 'direct';
+	const SOURCE_CLOUDFLARE = 'cloudflare';
+	const SOURCE_PROXY      = 'proxy';
+
+	const SOURCES = array(
+		self::SOURCE_LEGACY,
+		self::SOURCE_DIRECT,
+		self::SOURCE_CLOUDFLARE,
+		self::SOURCE_PROXY,
+	);
+
+	// Published at https://www.cloudflare.com/ips/ — checked 2026-11-11.
+	// Override with the `blockade_cloudflare_ranges` filter if Cloudflare adds ranges
+	// before a plugin release catches up.
+	const CLOUDFLARE_RANGES = array(
+		'173.245.48.0/20',
+		'103.21.244.0/22',
+		'103.22.200.0/22',
+		'103.31.4.0/22',
+		'141.101.64.0/18',
+		'108.162.192.0/18',
+		'190.93.240.0/20',
+		'188.114.96.0/20',
+		'197.234.240.0/22',
+		'198.41.128.0/17',
+		'162.158.0.0/15',
+		'104.16.0.0/13',
+		'104.24.0.0/14',
+		'172.64.0.0/13',
+		'131.0.72.0/22',
+		'2400:cb00::/32',
+		'2606:4700::/32',
+		'2803:f800::/32',
+		'2405:b500::/32',
+		'2405:8100::/32',
+		'2a06:98c0::/29',
+		'2c0f:f248::/32',
+	);
+
 	public static function get_client_ip() {
-		$candidates = array();
+		return self::resolve_ip(
+			Blockade_Database::get_ip_source(),
+			$_SERVER,
+			(string) get_option( Blockade_Database::OPTION_TRUSTED_PROXIES, '' )
+		);
+	}
 
-		if ( ! empty( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) {
-			$candidates[] = sanitize_text_field( wp_unslash( $_SERVER['HTTP_CF_CONNECTING_IP'] ) );
-		}
+	/**
+	 * Resolve the client IP for a given source mode. Pure apart from the
+	 * Cloudflare-ranges filter, so the admin diagnostic can preview every mode.
+	 */
+	public static function resolve_ip( $source, array $server, $trusted_proxies_raw = '' ) {
+		$remote = self::server_value( $server, 'REMOTE_ADDR' );
+		$remote = self::is_valid_ip( $remote ) ? $remote : '';
 
-		if ( ! empty( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
-			$forwarded = sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_FOR'] ) );
-			$parts     = explode( ',', $forwarded );
-			$candidates[] = trim( $parts[0] );
-		}
+		switch ( $source ) {
+			case self::SOURCE_DIRECT:
+				return $remote;
 
-		if ( ! empty( $_SERVER['REMOTE_ADDR'] ) ) {
-			$candidates[] = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) );
+			case self::SOURCE_CLOUDFLARE:
+				if ( '' !== $remote && self::is_cloudflare_ip( $remote ) ) {
+					$cf = self::server_value( $server, 'HTTP_CF_CONNECTING_IP' );
+					if ( self::is_valid_ip( $cf ) ) {
+						return $cf;
+					}
+				}
+				return $remote;
+
+			case self::SOURCE_PROXY:
+				return self::resolve_forwarded_ip( $remote, $server, $trusted_proxies_raw );
+
+			default:
+				return self::resolve_legacy_ip( $server );
 		}
+	}
+
+	/**
+	 * Pre-1.0.5 behavior, kept as the default: CF-Connecting-IP, then the first
+	 * X-Forwarded-For entry, then REMOTE_ADDR. The headers are trusted from any
+	 * sender, so this can be spoofed on servers reachable without a proxy.
+	 */
+	protected static function resolve_legacy_ip( array $server ) {
+		$candidates = array( self::server_value( $server, 'HTTP_CF_CONNECTING_IP' ) );
+
+		$forwarded    = self::server_value( $server, 'HTTP_X_FORWARDED_FOR' );
+		$parts        = explode( ',', $forwarded );
+		$candidates[] = trim( $parts[0] );
+
+		$candidates[] = self::server_value( $server, 'REMOTE_ADDR' );
 
 		foreach ( $candidates as $ip ) {
-			$ip = trim( $ip );
-			if ( filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+			if ( self::is_valid_ip( $ip ) ) {
 				return $ip;
 			}
 		}
 
 		return '';
+	}
+
+	/**
+	 * Walk X-Forwarded-For right to left, skipping trusted proxies. Entries to the
+	 * left of the first untrusted hop were written by the client and are ignored.
+	 */
+	protected static function resolve_forwarded_ip( $remote, array $server, $trusted_proxies_raw ) {
+		if ( '' === $remote || ! self::list_contains_ip( $remote, $trusted_proxies_raw ) ) {
+			return $remote;
+		}
+
+		$forwarded = self::server_value( $server, 'HTTP_X_FORWARDED_FOR' );
+		if ( '' === $forwarded ) {
+			return $remote;
+		}
+
+		$hop = $remote;
+		foreach ( array_reverse( explode( ',', $forwarded ) ) as $entry ) {
+			$entry = trim( $entry );
+			if ( ! self::is_valid_ip( $entry ) ) {
+				return $hop;
+			}
+			$hop = $entry;
+			if ( ! self::list_contains_ip( $entry, $trusted_proxies_raw ) ) {
+				return $entry;
+			}
+		}
+
+		return $hop;
+	}
+
+	public static function get_cloudflare_ranges() {
+		$ranges = apply_filters( 'blockade_cloudflare_ranges', self::CLOUDFLARE_RANGES );
+		return is_array( $ranges ) ? $ranges : self::CLOUDFLARE_RANGES;
+	}
+
+	public static function is_cloudflare_ip( $ip ) {
+		return self::list_contains_ip( $ip, implode( "\n", self::get_cloudflare_ranges() ) );
+	}
+
+	public static function is_public_ip( $ip ) {
+		return (bool) filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE );
+	}
+
+	protected static function server_value( array $server, $key ) {
+		if ( empty( $server[ $key ] ) || ! is_string( $server[ $key ] ) ) {
+			return '';
+		}
+		return trim( sanitize_text_field( wp_unslash( $server[ $key ] ) ) );
 	}
 
 	public static function is_valid_ip( $value ) {

@@ -4,7 +4,7 @@ Tags: login, security, brute force, rate limit, ip ban
 Requires at least: 5.0
 Tested up to: 6.4
 Requires PHP: 7.4
-Stable tag: 1.0.4
+Stable tag: 1.0.5
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -15,11 +15,11 @@ Lightweight brute force login protection, login audit logging, and IP allow/ban 
 Blockade is a focused, performant WordPress plugin that:
 
 * Rate limits login attempts with a tiered lockout system (friendly warning on first tier, hard 403 on higher tiers).
-* Applies more generous thresholds to IPs that have a successful login history for the username being attempted.
+* Applies more generous thresholds to IPs that have a successful login history for the username or email being attempted.
 * Lets admins unlock a single IP or clear every active lockout in one click.
 * Logs successful logins and optionally emails users in selected roles (administrators by default) when they log in from a new IP.
 * Supports allow/ban lists with IPv4, IPv6, and CIDR notation.
-* Detects the real client IP behind Cloudflare and common reverse proxies.
+* Lets you choose how the client IP is detected (direct, Cloudflare, or a trusted reverse proxy), with an on-page check that suggests the right setting for your server.
 * Automatically prunes old records daily.
 
 It intentionally does not include XML-RPC protection, 2FA, CAPTCHA, or firewalling. It does one thing well: login rate limiting and audit logging.
@@ -31,6 +31,12 @@ It intentionally does not include XML-RPC protection, 2FA, CAPTCHA, or firewalli
 3. Go to Settings → Blockade to view logs and configure IP lists.
 
 == Changelog ==
+
+= 1.0.5 =
+* New "IP address source" setting under Client IP Detection. Direct uses REMOTE_ADDR only; Cloudflare trusts CF-Connecting-IP only from Cloudflare's IP ranges; Trusted proxy reads X-Forwarded-For from proxies you list. Legacy (the previous behavior) stays the default, so nothing changes until you pick a mode.
+* Legacy mode trusts forwarding headers from anyone. On a server that can be reached without going through Cloudflare or a proxy, an attacker can fake their IP to avoid rate limits or get someone else locked out. Switching to the suggested mode closes this.
+* The settings page now shows how your current request's IP is seen in each mode, suggests a mode, and warns when the selected one looks wrong.
+* Users who log in with their email address now get the more lenient limits on IPs they've logged in from before. Previously this only worked with the username.
 
 = 1.0.4 =
 * Packaging fix: the 1.0.3 release zip accidentally included local development files (test scripts and notes). They contained no secrets. This update removes them. No functional changes.

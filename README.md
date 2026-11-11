@@ -10,7 +10,7 @@ A focused WordPress plugin for brute-force login protection, login audit logging
 - **Login audit log.** Every successful login is recorded. The admin page shows the most recent 100.
 - **New-location email alerts.** When a user in an alerted role (Administrator by default) logs in from an IP they haven't used before, Blockade emails their registered address. A user's first recorded login is logged silently and sets their baseline, so installing on an existing site sends no emails. You can choose the roles or turn alerts off on the settings page.
 - **IP allow/ban lists.** One entry per line, IPv4/IPv6, CIDR supported. Allowed IPs skip all rate limiting. Banned IPs are hard-blocked with the same generic 403 used for rate-limit lockouts — an attacker cannot distinguish the two.
-- **Reverse-proxy aware.** Detects the real client IP via `CF-Connecting-IP`, then `X-Forwarded-For`, falling back to `REMOTE_ADDR`.
+- **Configurable client-IP detection.** Choose Direct, Cloudflare, or Trusted proxy, with an on-page check that suggests the right mode for your server. See [Client IP detection](#client-ip-detection).
 - **Automatic retention.** Failed attempts are pruned after 48 hours; the login log after 60 days, via a single daily WP-Cron job.
 
 ## What it doesn't do (intentionally)
@@ -45,13 +45,14 @@ Once installed, Blockade uses [Plugin Update Checker](https://github.com/YahnisE
 After activation, go to **Settings → Blockade**. The single page contains:
 
 1. **Notifications**: turn new-location login email alerts on or off, and choose which roles receive them.
-2. **Allowed IPs** — whitelist that bypasses rate limiting. One per line, CIDR supported.
-3. **Banned IPs** — permanent hard-block list. One per line, CIDR supported.
-4. **Currently Locked Out IPs** — live view of IPs that have tripped a tier threshold, with per-row **Unlock** and a bulk **Clear all lockouts** action.
-5. **Recent Successful Logins** — most recent 100.
-6. **Recent Failed Attempts** — most recent 100.
+2. **Client IP Detection**: choose where Blockade reads the visitor's IP from. The section shows how your own request is seen in each mode and suggests one.
+3. **Allowed IPs** — whitelist that bypasses rate limiting. One per line, CIDR supported.
+4. **Banned IPs** — permanent hard-block list. One per line, CIDR supported.
+5. **Currently Locked Out IPs** — live view of IPs that have tripped a tier threshold, with per-row **Unlock** and a bulk **Clear all lockouts** action.
+6. **Recent Successful Logins** — most recent 100.
+7. **Recent Failed Attempts** — most recent 100.
 
-No other configuration is needed. Defaults are tuned for typical sites.
+Defaults are tuned for typical sites. The one setting worth checking after install is **Client IP Detection**.
 
 ## How rate limiting works
 
@@ -67,7 +68,34 @@ Every login attempt runs a check (before WordPress compares the password hash) a
 | 2    | 15        | 24 hr  | 1 hr    | Hard — HTTP 403 |
 | 3    | 30        | 24 hr  | 24 hr   | Hard — HTTP 403 |
 
-If the attempted username already has a successful-login history from the current IP, thresholds are roughly tripled (15 / 30 / 45).
+If the attempted username or email already has a successful-login history from the current IP, thresholds are roughly tripled (15 / 30 / 45).
+
+Limits are per IP. A distributed password spray, where each address tries once or twice, stays under every threshold. Blockade won't stop that on its own; strong passwords, 2FA, or edge rate limiting (such as a Cloudflare rule on `/wp-login.php`) are the tools for it.
+
+## Client IP detection
+
+Every limit, ban and allow-list entry keys on the client IP, so Blockade has to know which address to trust. **Settings → Blockade → Client IP Detection** offers four modes:
+
+| Mode | Uses | Pick it when |
+|------|------|--------------|
+| Legacy (default) | `CF-Connecting-IP`, then the first `X-Forwarded-For` entry, then `REMOTE_ADDR`, trusting the headers from anyone | Only for backward compatibility. |
+| Direct | `REMOTE_ADDR` only | No proxy, or the web server already restores the visitor IP (Apache `mod_remoteip`, nginx `real_ip`). |
+| Cloudflare | `CF-Connecting-IP`, but only when `REMOTE_ADDR` is in Cloudflare's IP ranges; otherwise `REMOTE_ADDR` | The site is proxied by Cloudflare and `REMOTE_ADDR` shows Cloudflare's addresses. |
+| Trusted proxy | `X-Forwarded-For` read right to left, skipping the proxies you list | A load balancer or reverse proxy you control sits in front of WordPress. |
+
+The section shows your own request's `REMOTE_ADDR` and forwarding headers, what each mode would resolve to, and a suggested mode.
+
+**Why Legacy is risky.** Clients can send `CF-Connecting-IP` and `X-Forwarded-For` themselves. If the server can be reached without passing through Cloudflare or your proxy (for example by its IP address), Legacy trusts those forged headers. An attacker can send a new fake address with every attempt so no limit is ever reached, or send someone else's address to get them locked out. Legacy stays the default only so upgrades don't change behavior silently; switch to the suggested mode.
+
+**Locking the origin to Cloudflare.** If your site is behind Cloudflare, also consider allowing only [Cloudflare's IP ranges](https://www.cloudflare.com/ips/) to reach the web server, at the firewall or host level. That's outside Blockade's scope, but it stops direct-to-origin traffic entirely.
+
+The bundled Cloudflare ranges can be overridden with the `blockade_cloudflare_ranges` filter:
+
+```php
+add_filter( 'blockade_cloudflare_ranges', function ( $ranges ) {
+    return array_merge( $ranges, array( '203.0.113.0/24' ) );
+} );
+```
 
 ## Tuning
 
@@ -96,12 +124,23 @@ Two custom tables, both `InnoDB`:
 - `{prefix}blockade_attempts` — failed login attempts (auto-pruned after 48h)
 - `{prefix}blockade_log` — successful logins (auto-pruned after 60d)
 
-Three `wp_options` entries hold the settings:
+These `wp_options` entries hold the settings:
 
 - `blockade_allowed_ips`
 - `blockade_banned_ips`
 - `blockade_email_new_location_enabled`
 - `blockade_email_alert_roles`
+- `blockade_ip_source` (`legacy`, `direct`, `cloudflare` or `proxy`)
+- `blockade_trusted_proxies`
+
+Options that already exist are left alone on activation, so you can set them with WP-CLI before activating. For example, to start with alerts off and Direct IP detection:
+
+```bash
+wp option add blockade_email_new_location_enabled 0
+wp option add blockade_email_alert_roles '[]' --format=json
+wp option add blockade_ip_source direct
+wp plugin activate blockade
+```
 
 Client IPs are the only personal data stored. User agents are deliberately **not** logged (trivially spoofed; your web server's access log already has them).
 
@@ -114,7 +153,7 @@ Client IPs are the only personal data stored. User agents are deliberately **not
 
 ## Uninstall
 
-Deleting the plugin via WordPress runs `uninstall.php`, which drops both tables and deletes the three option keys. **Deactivating does not remove data** — the assumption is that the user may be toggling.
+Deleting the plugin via WordPress runs `uninstall.php`, which drops both tables and deletes all Blockade options. **Deactivating does not remove data** — the assumption is that the user may be toggling.
 
 ## Contributing
 

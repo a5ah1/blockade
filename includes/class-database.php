@@ -11,7 +11,17 @@ class Blockade_Database {
 	const OPTION_EMAIL_NEW_LOCATION_ENABLED = 'blockade_email_new_location_enabled';
 	const OPTION_EMAIL_ALERT_ROLES          = 'blockade_email_alert_roles';
 
+	const OPTION_IP_SOURCE                  = 'blockade_ip_source';
+	const OPTION_TRUSTED_PROXIES            = 'blockade_trusted_proxies';
+
 	const DEFAULT_EMAIL_ALERT_ROLES = array( 'administrator' );
+
+	// Legacy is the default so upgrades keep their current behavior. Read-site
+	// fallback, not seeded at activation.
+	public static function get_ip_source() {
+		$source = (string) get_option( self::OPTION_IP_SOURCE, Blockade_IP_Utils::SOURCE_LEGACY );
+		return in_array( $source, Blockade_IP_Utils::SOURCES, true ) ? $source : Blockade_IP_Utils::SOURCE_LEGACY;
+	}
 
 	public static function get_email_alert_roles() {
 		$roles = get_option( self::OPTION_EMAIL_ALERT_ROLES, self::DEFAULT_EMAIL_ALERT_ROLES );
@@ -144,9 +154,10 @@ class Blockade_Database {
 			$wpdb->prepare(
 				"SELECT 1 FROM {$log_table} l
 				 INNER JOIN {$wpdb->users} u ON u.ID = l.user_id
-				 WHERE l.ip = %s AND u.user_login = %s
+				 WHERE l.ip = %s AND ( u.user_login = %s OR u.user_email = %s )
 				 LIMIT 1",
 				$ip,
+				$username,
 				$username
 			)
 		);

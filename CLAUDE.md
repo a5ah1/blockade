@@ -50,11 +50,26 @@ Breaking any of these silently weakens the plugin:
 
 - **Alert roles default to `administrator` at the read site.** `Blockade_Database::get_email_alert_roles()` falls back to `DEFAULT_EMAIL_ALERT_ROLES` when the option is missing. Nothing is seeded at activation, so this fallback is the only reason upgraded installs move to admin-only alerts. A saved empty array is valid and means "alert no one". Never default to all roles: on WooCommerce sites that emails every customer.
 
+- **IP source defaults to `legacy` at the read site.** `Blockade_Database::get_ip_source()` falls back to `legacy` for a missing or unknown value, and activation does not seed it. Upgraded installs must keep pre-1.0.5 IP identity until an admin picks a mode. Don't change the default without asking the user.
+
+- **Activation never overwrites existing options.** `install()` only `add_option`s keys that are absent, and newer options aren't seeded at all. Site operators set options with WP-CLI *before* activating (e.g. alerts off, `ip_source=direct`) and rely on that surviving activation. README documents this.
+
+- **Known-IP leniency matches username or email.** `ip_has_login_history_for_user` compares the typed value against both `user_login` and `user_email`, since WooCommerce customers mostly log in with email.
+
 - **A user's first recorded login never sends an alert.** `on_login_success` only alerts when the IP is new *and* the user already has login history (`user_has_login_history`). This keeps installs on existing sites quiet, and covers users whose history aged out after the 60-day retention.
 
 ## Client IP resolution
 
-`Blockade_IP_Utils::get_client_ip` trusts `HTTP_CF_CONNECTING_IP`, then the first entry of `HTTP_X_FORWARDED_FOR`, then `REMOTE_ADDR`. Known limitation: sites not behind a trusted proxy can be spoofed via forged `X-Forwarded-For`. If configurability is added, gate header trust behind an option — don't silently change the fallback order.
+`Blockade_IP_Utils::get_client_ip` delegates to `resolve_ip( $source, $_SERVER, $trusted_proxies )`, keyed by the `blockade_ip_source` option (1.0.5+):
+
+- `legacy` (default): `HTTP_CF_CONNECTING_IP`, then the first `HTTP_X_FORWARDED_FOR` entry, then `REMOTE_ADDR`, trusting headers from anyone. Spoofable when the origin is reachable directly. Kept byte-for-byte as pre-1.0.5 behavior; don't "harden" it in place, because that silently changes IP identity on upgrade. Steer users to another mode via the admin diagnostic instead.
+- `direct`: `REMOTE_ADDR` only.
+- `cloudflare`: `CF-Connecting-IP` only when `REMOTE_ADDR` is in `CLOUDFLARE_RANGES` (filterable via `blockade_cloudflare_ranges`), else `REMOTE_ADDR`.
+- `proxy`: walk `X-Forwarded-For` right to left from `REMOTE_ADDR`, skipping entries in `blockade_trusted_proxies`; return the first untrusted hop. Never take the leftmost entry: the client wrote it.
+
+`resolve_ip` must stay side-effect free (apart from the ranges filter): the admin diagnostic calls it for every mode to preview what each would resolve to. `Blockade_Admin::recommend_ip_source` / `ip_source_warnings` drive the suggestions; they read only the passed `$server` array so they can be tested.
+
+`CLOUDFLARE_RANGES` is copied from https://www.cloudflare.com/ips/. Re-check it when releasing.
 
 ## Lifecycle
 
